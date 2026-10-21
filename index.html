@@ -1,0 +1,4275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>El Viaje de Anika - Aventura en el Bosque</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      background: #1a1721;
+      font-family: 'Fredoka', 'Quicksand', sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: #fff;
+    }
+
+    #game-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      max-width: 177.78vh; /* 16:9 ratio */
+      max-height: 56.25vw;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+      background: #111;
+      overflow: hidden;
+      border-radius: 8px;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: auto;
+    }
+
+    /* Controles virtuales para pantallas táctiles */
+    #touch-controls {
+      position: absolute;
+      bottom: 12px;
+      left: 0;
+      width: 100%;
+      padding: 0 16px;
+      display: none;
+      justify-content: space-between;
+      align-items: flex-end;
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    .touch-btn-group {
+      display: flex;
+      gap: 12px;
+      pointer-events: auto;
+    }
+
+    .touch-btn {
+      width: 66px;
+      height: 66px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.22);
+      border: 3px solid rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(8px);
+      color: #fff;
+      font-size: 24px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+      transition: transform 0.08s, background 0.15s;
+    }
+
+    .touch-btn:active, .touch-btn.active {
+      transform: scale(0.92);
+      background: rgba(255, 220, 120, 0.5);
+      border-color: #ffe680;
+    }
+
+    .touch-btn-jump {
+      width: 78px;
+      height: 78px;
+      background: rgba(255, 150, 80, 0.4);
+      border-color: #ffb880;
+      font-size: 17px;
+      letter-spacing: 0.5px;
+    }
+
+    /* Barra superior para Pausa y Sonido */
+    #top-bar {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      display: flex;
+      gap: 10px;
+      z-index: 120;
+    }
+
+    .top-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2);
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(6px);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: transform 0.15s, background 0.15s;
+    }
+
+    .top-btn:hover {
+      transform: scale(1.08);
+      background: rgba(255, 255, 255, 0.35);
+    }
+
+    #pause-toggle {
+      display: none; /* Se activa dinámicamente en los niveles 1, 2 y 3 */
+    }
+  </style>
+</head>
+<body>
+
+  <div id="game-container">
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+
+    <!-- Barra superior con Botón de Pausa y Audio -->
+    <div id="top-bar">
+      <div id="pause-toggle" class="top-btn" title="Pausar juego (P / Esc)">⏸</div>
+      <div id="audio-toggle" class="top-btn" title="Activar/Desactivar Sonido">🔊</div>
+    </div>
+
+    <!-- Controles táctiles -->
+    <div id="touch-controls">
+      <div class="touch-btn-group">
+        <div class="touch-btn" id="btn-left">◀</div>
+        <div class="touch-btn" id="btn-right">▶</div>
+      </div>
+      <div class="touch-btn-group">
+        <div class="touch-btn touch-btn-jump" id="btn-jump">SALTO</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  /**
+   * EL VIAJE DE ANIKA (Inspirado en Anika's Odyssey)
+   * Videojuego 2D completo en Canvas HTML5 + Web Audio API.
+   * Totalmente autónomo sin dependencias externas.
+   */
+
+  // ==========================================
+  // 1. CONSTANTES Y CONFIGURACIÓN GENERAL
+  // ==========================================
+  const V_WIDTH = 1280;
+  const V_HEIGHT = 720;
+
+  const GRAVITY = 0.58;
+  const PLAYER_SPEED = 4.8;
+  const JUMP_FORCE = -11.5;
+  const JUMP_HOLD_BOOST = -0.32; // Permite salto variable al mantener presionado
+
+  // Constantes específicas para el Nivel 1 (El Lago): salto más bajo, medido y exigente
+  const JUMP_FORCE_LAKE = -7.5;      // ~65% de la fuerza normal (fácil de ajustar)
+  const JUMP_HOLD_BOOST_LAKE = -0.14; // Rango más corto entre salto mínimo y máximo
+
+  // Constantes específicas para el Nivel 2 (El Lobo): fuerza ajustada un +13% para superar holgadamente cualquier tronco
+  const JUMP_FORCE_WOLF = -8.8;       // Ajustable independientemente del nivel 1
+  const JUMP_HOLD_BOOST_WOLF = -0.18;
+  const RUNNER_BASE_SCROLL_SPEED = 5.6;
+  const LOG_JUMP_FLIGHT_TIME = (2 * Math.abs(JUMP_FORCE_WOLF)) / GRAVITY;
+  const LOG_JUMP_DISTANCE = RUNNER_BASE_SCROLL_SPEED * LOG_JUMP_FLIGHT_TIME;
+  const LOG_MIN_GAP = Math.ceil(LOG_JUMP_DISTANCE * 1.5);
+  const LOG_MAX_GAP = Math.ceil(LOG_JUMP_DISTANCE * 2.0);
+
+  // Constantes específicas para el Nivel 3 (El Gran Pino): mayor alcance vertical y horizontal
+  const JUMP_FORCE_PINE = -14.6;      // Salto vertical más alto
+  const MOVE_SPEED_PINE = 6.8;        // Mayor velocidad lateral para alcanzar ramas más lejanas
+  const SPRING_BOOST_PINE = -20.5;    // Impulso súper elástico con piña resorte
+
+  // Constantes de invulnerabilidad y parpadeo al reaparecer (común a todos los niveles: exactamente 2 parpadeos en ~1 segundo)
+  const BLINK_COUNT = 2;          // Exactamente 2 parpadeos completos (visible -> invisible -> visible -> invisible -> visible)
+  const BLINK_DURATION = 1.0;     // 1.0 segundo de duración total
+
+  // Duraciones ajustables de la cinemática final.
+  const FINAL_CINEMATIC = {
+    nest: 4.2,
+    descent: 5.8,
+    home: 2.8,
+    fade: 1.0,
+    total: 13.8,
+    summitBranchY: 344
+  };
+  const FINAL_HEART_TIMES = [2.55, 2.95, 3.35, 3.72];
+  let duckInNest = true;
+
+  // Determina la visibilidad de la niña durante el parpadeo de invulnerabilidad
+  function isPlayerBlinkVisible(invulTimer) {
+    if (invulTimer <= 0) return true;
+    const progress = 1 - (invulTimer / BLINK_DURATION);
+    const phase = Math.floor(progress * BLINK_COUNT * 2);
+    return (phase % 2 === 0);
+  }
+
+  // Estados del juego
+  const STATE = {
+    MENU: 'MENU',
+    LEVEL_SELECT: 'LEVEL_SELECT',
+    CREDITS: 'CREDITS',
+    CINE1: 'CINE1',
+    LEVEL1: 'LEVEL1',
+    LEVEL2: 'LEVEL2',
+    LEVEL3: 'LEVEL3',
+    CINE_FINAL: 'CINE_FINAL',
+    VICTORY: 'VICTORY'
+  };
+
+  let currentState = STATE.MENU;
+  let stateTime = 0;
+  let transitionAlpha = 0;
+  let pendingNextState = null;
+  let transitionSpeed = 0.035;
+  let transitionBlackHold = 0; // Tiempo en segundos manteniéndose en negro
+
+  // Canvas y contexto
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  // Polyfill para ctx.roundRect en navegadores antiguos
+  if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii = 0) {
+      if (typeof radii === 'number') radii = [radii, radii, radii, radii];
+      else if (!Array.isArray(radii)) radii = [0, 0, 0, 0];
+      while (radii.length < 4) radii.push(radii[radii.length - 1] || 0);
+      const [tl, tr, br, bl] = radii;
+      this.beginPath();
+      this.moveTo(x + tl, y);
+      this.lineTo(x + w - tr, y);
+      this.quadraticCurveTo(x + w, y, x + w, y + tr);
+      this.lineTo(x + w, y + h - br);
+      this.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+      this.lineTo(x + bl, y + h);
+      this.quadraticCurveTo(x, y + h, x, y + h - bl);
+      this.lineTo(x, y + tl);
+      this.quadraticCurveTo(x, y, x + tl, y);
+      this.closePath();
+      return this;
+    };
+  }
+
+  const audioToggleBtn = document.getElementById('audio-toggle');
+  const pauseToggleBtn = document.getElementById('pause-toggle');
+  const touchControlsElem = document.getElementById('touch-controls');
+
+  // Estado del sistema de pausa
+  let isPaused = false;
+
+  function togglePause() {
+    // Solo permitir pausar durante los 3 niveles
+    if (currentState !== STATE.LEVEL1 && currentState !== STATE.LEVEL2 && currentState !== STATE.LEVEL3) {
+      return;
+    }
+    isPaused = !isPaused;
+    if (isPaused) {
+      pauseToggleBtn.textContent = '▶';
+      pauseToggleBtn.title = 'Reanudar juego (P / Esc)';
+      audio.pause();
+    } else {
+      pauseToggleBtn.textContent = '⏸';
+      pauseToggleBtn.title = 'Pausar juego (P / Esc)';
+      audio.resume();
+    }
+  }
+
+  pauseToggleBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePause();
+  });
+
+  // Detección de táctil
+  const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+  if (isTouchDevice) {
+    touchControlsElem.style.display = 'flex';
+  }
+
+  // ==========================================
+  // PRE-RENDERIZADO EN CANVAS OFFSCREEN (Optimización sin trabas)
+  // ==========================================
+  const offscreen = {
+    skyDay: null,
+    skySunset: null,
+    skyTwilight: null,
+    mountainsDay: null,
+    mountainsSunset: null,
+    hillsLake: null
+  };
+
+  function renderMountainsToCanvas(mCtx, c1, c2) {
+    const W = V_WIDTH;
+    const H = V_HEIGHT;
+    mCtx.clearRect(0, 0, W, H);
+    const k = (Math.PI * 2) / W;
+
+    // Capa 1 lejana (Tileado periódico sin costuras)
+    mCtx.fillStyle = c1;
+    mCtx.beginPath();
+    mCtx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 8) {
+      const y = 260 + Math.sin(x * k * 2) * 55 + Math.cos(x * k * 3) * 30;
+      mCtx.lineTo(x, y);
+    }
+    mCtx.lineTo(W, H);
+    mCtx.closePath();
+    mCtx.fill();
+
+    // Capa 2 intermedia
+    mCtx.fillStyle = c2;
+    mCtx.beginPath();
+    mCtx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 8) {
+      const y = 340 + Math.sin(x * k * 3 + 1) * 45 + Math.cos(x * k * 5) * 20;
+      mCtx.lineTo(x, y);
+    }
+    mCtx.lineTo(W, H);
+    mCtx.closePath();
+    mCtx.fill();
+  }
+
+  function renderLakeHillsToCanvas(hCtx) {
+    const W = V_WIDTH;
+    const H = V_HEIGHT;
+    hCtx.clearRect(0, 0, W, H);
+    const k = (Math.PI * 2) / W;
+
+    // Colinas suaves en el horizonte lejano del lago (sin árboles sobre el agua)
+    hCtx.fillStyle = '#6fa38b';
+    hCtx.beginPath();
+    hCtx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 8) {
+      const y = 430 + Math.sin(x * k * 2) * 22 + Math.cos(x * k * 4) * 12;
+      hCtx.lineTo(x, y);
+    }
+    hCtx.lineTo(W, H);
+    hCtx.closePath();
+    hCtx.fill();
+
+    // Franja de tierra y vegetación baja lejana
+    hCtx.fillStyle = '#558a72';
+    hCtx.beginPath();
+    hCtx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 8) {
+      const y = 455 + Math.sin(x * k * 3 + 0.8) * 16 + Math.cos(x * k * 5) * 8;
+      hCtx.lineTo(x, y);
+    }
+    hCtx.lineTo(W, H);
+    hCtx.closePath();
+    hCtx.fill();
+  }
+
+  function initOffscreenCanvases() {
+    // 1. Cielo Diurno
+    offscreen.skyDay = document.createElement('canvas');
+    offscreen.skyDay.width = V_WIDTH;
+    offscreen.skyDay.height = V_HEIGHT;
+    const ctxDay = offscreen.skyDay.getContext('2d');
+    const gradDay = ctxDay.createLinearGradient(0, 0, 0, V_HEIGHT);
+    gradDay.addColorStop(0, '#78c6e8');
+    gradDay.addColorStop(0.55, '#c5ebf8');
+    gradDay.addColorStop(1, '#ffedd6');
+    ctxDay.fillStyle = gradDay;
+    ctxDay.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+
+    // 2. Cielo Atardecer
+    offscreen.skySunset = document.createElement('canvas');
+    offscreen.skySunset.width = V_WIDTH;
+    offscreen.skySunset.height = V_HEIGHT;
+    const ctxSun = offscreen.skySunset.getContext('2d');
+    const gradSun = ctxSun.createLinearGradient(0, 0, 0, V_HEIGHT);
+    gradSun.addColorStop(0, '#533b68');
+    gradSun.addColorStop(0.45, '#bd5a6f');
+    gradSun.addColorStop(0.8, '#f79a61');
+    gradSun.addColorStop(1, '#fed48b');
+    ctxSun.fillStyle = gradSun;
+    ctxSun.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+
+    // 3. Cielo Crepuscular
+    offscreen.skyTwilight = document.createElement('canvas');
+    offscreen.skyTwilight.width = V_WIDTH;
+    offscreen.skyTwilight.height = V_HEIGHT;
+    const ctxTwi = offscreen.skyTwilight.getContext('2d');
+    const gradTwi = ctxTwi.createLinearGradient(0, 0, 0, V_HEIGHT);
+    gradTwi.addColorStop(0, '#1d1936');
+    gradTwi.addColorStop(0.5, '#402a4f');
+    gradTwi.addColorStop(1, '#7e4757');
+    ctxTwi.fillStyle = gradTwi;
+    ctxTwi.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+
+    // 4. Montañas Diurnas (Tile continuo de 1280px)
+    offscreen.mountainsDay = document.createElement('canvas');
+    offscreen.mountainsDay.width = V_WIDTH;
+    offscreen.mountainsDay.height = V_HEIGHT;
+    renderMountainsToCanvas(offscreen.mountainsDay.getContext('2d'), '#9fc0b5', '#7da397');
+
+    // 5. Montañas Atardecer
+    offscreen.mountainsSunset = document.createElement('canvas');
+    offscreen.mountainsSunset.width = V_WIDTH;
+    offscreen.mountainsSunset.height = V_HEIGHT;
+    renderMountainsToCanvas(offscreen.mountainsSunset.getContext('2d'), '#78435d', '#552e46');
+
+    // 6. Colinas del Lago
+    offscreen.hillsLake = document.createElement('canvas');
+    offscreen.hillsLake.width = V_WIDTH;
+    offscreen.hillsLake.height = V_HEIGHT;
+    renderLakeHillsToCanvas(offscreen.hillsLake.getContext('2d'));
+  }
+
+  initOffscreenCanvases();
+
+  // Función para dibujar capas con parallax en mosaico continuo (sin huecos negros)
+  function drawParallaxLayer(ctx, canvasImg, scrollX, speedFactor = 1.0) {
+    if (!canvasImg) return;
+    const tileW = V_WIDTH;
+    const offset = Math.floor(((scrollX * speedFactor) % tileW + tileW) % tileW);
+    // Dibujar suficientes copias para cubrir la pantalla completa más márgenes
+    ctx.drawImage(canvasImg, -offset, 0);
+    if (offset > 0) {
+      ctx.drawImage(canvasImg, tileW - offset, 0);
+    }
+    ctx.drawImage(canvasImg, -tileW - offset, 0);
+  }
+
+  // ==========================================
+  // 2. SISTEMA DE AUDIO (Web Audio API)
+  // ==========================================
+  class SoundEngine {
+    constructor() {
+      this.ctx = null;
+      this.enabled = true;
+      this.bgmTimer = null;
+      this.currentTrack = null;
+      this.bgmStep = 0;
+    }
+
+    init() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          this.ctx = new AudioCtx();
+        }
+      }
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+    }
+
+    pause() {
+      if (this.ctx && this.ctx.state === 'running') {
+        this.ctx.suspend();
+      }
+    }
+
+    resume() {
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume();
+      }
+    }
+
+    playTone(freq, type, duration, slide = 0, vol = 0.15) {
+      if (!this.enabled || !this.ctx) return;
+      try {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        if (slide !== 0) {
+          osc.frequency.exponentialRampToValueAtTime(Math.max(10, freq + slide), this.ctx.currentTime + duration);
+        }
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    playNoise(duration, filterFreq = 1000, vol = 0.15) {
+      if (!this.enabled || !this.ctx) return;
+      try {
+        const bufferSize = this.ctx.sampleRate * duration;
+        const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = buffer;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(filterFreq, this.ctx.currentTime);
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        noise.start();
+      } catch (e) {}
+    }
+
+    sfxJump() {
+      this.playTone(320, 'sine', 0.22, 280, 0.18);
+      this.playTone(440, 'triangle', 0.15, 120, 0.1);
+    }
+
+    sfxBounce() {
+      this.playTone(280, 'sine', 0.35, 450, 0.22);
+    }
+
+    sfxStep() {
+      this.playTone(180 + Math.random() * 40, 'sine', 0.06, -50, 0.05);
+    }
+
+    sfxSplash() {
+      this.playNoise(0.5, 600, 0.35);
+      this.playTone(180, 'sine', 0.3, -80, 0.2);
+    }
+
+    sfxGrowl() {
+      this.playTone(110, 'sawtooth', 0.45, -40, 0.2);
+      this.playNoise(0.4, 450, 0.25);
+    }
+
+    sfxEagle() {
+      this.playTone(880, 'sawtooth', 0.35, -250, 0.18);
+      this.playTone(1200, 'sine', 0.3, -400, 0.15);
+      this.playNoise(0.45, 900, 0.18); // Aleteo
+    }
+
+    sfxDuck() {
+      this.playTone(550, 'sawtooth', 0.12, 100, 0.22);
+      setTimeout(() => this.playTone(600, 'sawtooth', 0.16, -120, 0.2), 120);
+    }
+
+    sfxCrumble() {
+      this.playNoise(0.28, 400, 0.22);
+      this.playTone(140, 'square', 0.18, -60, 0.12);
+    }
+
+    sfxClick() {
+      this.playTone(660, 'sine', 0.08, 120, 0.14);
+    }
+
+    sfxVictory() {
+      const notes = [440, 554, 659, 880, 1108];
+      notes.forEach((n, idx) => {
+        setTimeout(() => this.playTone(n, 'triangle', 0.4, 0, 0.2), idx * 110);
+      });
+    }
+
+    setMusicTrack(track) {
+      if (this.currentTrack === track) return;
+      this.currentTrack = track;
+      this.bgmStep = 0;
+      if (this.bgmTimer) clearInterval(this.bgmTimer);
+
+      if (!track) return;
+
+      const tempoMap = {
+        'MENU': 260,
+        'CINE1': 220,
+        'LAKE': 300,
+        'WOLF': 145,
+        'PINE': 190,
+        'VICTORY': 280
+      };
+
+      const interval = tempoMap[track] || 250;
+      this.bgmTimer = setInterval(() => {
+        if (!this.enabled || !this.ctx) return;
+        this.stepMusic();
+      }, interval);
+    }
+
+    stepMusic() {
+      this.bgmStep++;
+      const s = this.bgmStep;
+
+      if (this.currentTrack === 'MENU') {
+        // Acordes suaves de caja de música en Do mayor / Fa mayor
+        const arpeggio = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63, 349.23, 440.00];
+        const note = arpeggio[s % arpeggio.length];
+        this.playTone(note, 'sine', 0.45, 0, 0.06);
+        if (s % 8 === 0) this.playTone(130.81, 'triangle', 0.8, 0, 0.08); // Bajo
+      }
+      else if (this.currentTrack === 'LAKE') {
+        // Ambiente acuático pentatónico relajante
+        const penta = [329.63, 392.00, 440.00, 493.88, 587.33, 659.25];
+        const note = penta[(s * 3) % penta.length];
+        this.playTone(note, 'sine', 0.5, 0, 0.05);
+        if (s % 4 === 0) {
+          this.playTone(164.81, 'triangle', 0.6, 0, 0.06);
+        }
+      }
+      else if (this.currentTrack === 'WOLF') {
+        // Percusión rápida y bajo tenso en La menor
+        if (s % 2 === 0) {
+          this.playTone(110, 'sawtooth', 0.12, -30, 0.12); // Bajo tenso
+        } else {
+          this.playNoise(0.06, 800, 0.08); // Percusión tambor
+        }
+        if (s % 8 === 0) {
+          this.playTone(220, 'square', 0.25, -20, 0.09);
+        }
+      }
+      else if (this.currentTrack === 'PINE') {
+        // Melodía alegre y saltarina ascendente
+        const scale = [293.66, 369.99, 440.00, 554.37, 587.33, 739.99];
+        const note = scale[s % scale.length];
+        this.playTone(note, 'triangle', 0.3, 0, 0.07);
+        if (s % 4 === 0) this.playTone(146.83, 'sine', 0.45, 0, 0.07);
+      }
+      else if (this.currentTrack === 'VICTORY') {
+        const fanfare = [392.00, 493.88, 587.33, 783.99];
+        this.playTone(fanfare[s % fanfare.length], 'triangle', 0.4, 0, 0.08);
+      }
+    }
+  }
+
+  const audio = new SoundEngine();
+
+  audioToggleBtn.addEventListener('click', () => {
+    audio.init();
+    audio.enabled = !audio.enabled;
+    audioToggleBtn.textContent = audio.enabled ? '🔊' : '🔇';
+    audioToggleBtn.style.opacity = audio.enabled ? '1' : '0.5';
+  });
+
+  // ==========================================
+  // 3. ENTRADA DE USUARIO (Teclado y Táctil)
+  // ==========================================
+  const keys = {
+    left: false,
+    right: false,
+    jump: false,
+    jumpPressed: false,
+    esc: false
+  };
+
+  window.addEventListener('keydown', (e) => {
+    audio.init();
+
+    // Modo de prueba: Ctrl+M reproduce la cinemática final desde cualquier pantalla.
+    if (e.ctrlKey && e.code === 'KeyM') {
+      e.preventDefault();
+      isPaused = false;
+      pendingNextState = null;
+      transitionAlpha = 0;
+      transitionBlackHold = 0;
+      cineFinal.reset();
+      currentState = STATE.CINE_FINAL;
+      return;
+    }
+
+    // Pausa con tecla P o Escape en los niveles 1, 2 y 3
+    if (e.code === 'KeyP' || (e.code === 'Escape' && (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.LEVEL3))) {
+      togglePause();
+      return;
+    }
+
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
+      if (!keys.jump) keys.jumpPressed = true;
+      keys.jump = true;
+    }
+    if (e.code === 'Escape' && (currentState === STATE.CINE1 || currentState === STATE.CINE_FINAL)) keys.esc = true;
+  });
+
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') keys.jump = false;
+    if (e.code === 'Escape') keys.esc = false;
+  });
+
+  // Botones táctiles virtuales
+  const setupTouchBtn = (elem, pressAction, releaseAction) => {
+    const press = (e) => {
+      e.preventDefault();
+      audio.init();
+      elem.classList.add('active');
+      pressAction();
+    };
+    const release = (e) => {
+      e.preventDefault();
+      elem.classList.remove('active');
+      releaseAction();
+    };
+    elem.addEventListener('touchstart', press, { passive: false });
+    elem.addEventListener('touchend', release, { passive: false });
+    elem.addEventListener('mousedown', press);
+    elem.addEventListener('mouseup', release);
+    elem.addEventListener('mouseleave', release);
+  };
+
+  setupTouchBtn(document.getElementById('btn-left'), () => { keys.left = true; }, () => { keys.left = false; });
+  setupTouchBtn(document.getElementById('btn-right'), () => { keys.right = true; }, () => { keys.right = false; });
+  setupTouchBtn(document.getElementById('btn-jump'), () => {
+    if (!keys.jump) keys.jumpPressed = true;
+    keys.jump = true;
+  }, () => { keys.jump = false; });
+
+  // Puntero del ratón para botones de interfaz en Canvas
+  let mouse = { x: 0, y: 0, clicked: false, down: false };
+  let canvasRect = canvas.getBoundingClientRect();
+
+  function handleResize() {
+    canvasRect = canvas.getBoundingClientRect();
+  }
+  window.addEventListener('resize', handleResize);
+
+  function updateMousePos(clientX, clientY) {
+    if (!canvasRect || canvasRect.width === 0) {
+      canvasRect = canvas.getBoundingClientRect();
+    }
+    const scaleX = V_WIDTH / canvasRect.width;
+    const scaleY = V_HEIGHT / canvasRect.height;
+    mouse.x = (clientX - canvasRect.left) * scaleX;
+    mouse.y = (clientY - canvasRect.top) * scaleY;
+  }
+
+  window.addEventListener('mousemove', (e) => updateMousePos(e.clientX, e.clientY));
+  window.addEventListener('mousedown', (e) => {
+    audio.init();
+    updateMousePos(e.clientX, e.clientY);
+    mouse.down = true;
+    mouse.clicked = true;
+  });
+  window.addEventListener('mouseup', () => { mouse.down = false; });
+  window.addEventListener('touchstart', (e) => {
+    audio.init();
+    if (e.touches.length > 0) {
+      updateMousePos(e.touches[0].clientX, e.touches[0].clientY);
+      mouse.down = true;
+      mouse.clicked = true;
+    }
+  }, { passive: true });
+
+  // ==========================================
+  // 4. SISTEMA DE PARTÍCULAS
+  // ==========================================
+  class ParticleSystem {
+    constructor() {
+      this.particles = [];
+    }
+
+    add(p) {
+      this.particles.push({
+        x: p.x || 0,
+        y: p.y || 0,
+        vx: p.vx || (Math.random() * 2 - 1),
+        vy: p.vy || (Math.random() * 2 - 1),
+        size: p.size || 4,
+        color: p.color || '#fff',
+        alpha: p.alpha !== undefined ? p.alpha : 1,
+        life: p.life || 60,
+        maxLife: p.life || 60,
+        type: p.type || 'circle',
+        rot: p.rot || Math.random() * Math.PI,
+        vRot: p.vRot || (Math.random() * 0.1 - 0.05),
+        gravity: p.gravity || 0
+      });
+    }
+
+    update() {
+      for (let i = this.particles.length - 1; i >= 0; i--) {
+        const p = this.particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += p.gravity;
+        p.rot += p.vRot;
+        p.life--;
+        p.alpha = Math.max(0, p.life / p.maxLife);
+        if (p.life <= 0) {
+          this.particles.splice(i, 1);
+        }
+      }
+    }
+
+    draw(ctx, offsetX = 0, offsetY = 0) {
+      ctx.save();
+      for (const p of this.particles) {
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+        const px = p.x - offsetX;
+        const py = p.y - offsetY;
+
+        if (p.type === 'leaf') {
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.rotate(p.rot);
+          ctx.beginPath();
+          ctx.ellipse(0, 0, p.size * 1.5, p.size * 0.7, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        } else if (p.type === 'heart') {
+          ctx.save();
+          ctx.translate(px, py);
+          ctx.font = `${p.size * 2}px Fredoka`;
+          ctx.textAlign = 'center';
+          ctx.fillText('💖', 0, 0);
+          ctx.restore();
+        } else {
+          ctx.beginPath();
+          ctx.arc(px, py, p.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.restore();
+    }
+
+    clear() {
+      this.particles = [];
+    }
+  }
+
+  const particles = new ParticleSystem();
+
+  // Partículas ambientales del bosque (hojas y polen flotante)
+  const ambientLeaves = [];
+  for (let i = 0; i < 35; i++) {
+    ambientLeaves.push({
+      x: Math.random() * V_WIDTH,
+      y: Math.random() * V_HEIGHT,
+      speedX: 0.4 + Math.random() * 0.7,
+      speedY: 0.3 + Math.random() * 0.5,
+      size: 4 + Math.random() * 4,
+      rot: Math.random() * Math.PI * 2,
+      color: ['#a8d576', '#f2b55b', '#e28448', '#8ec976'][Math.floor(Math.random() * 4)]
+    });
+  }
+
+  function updateAndDrawAmbientLeaves(ctx) {
+    ctx.save();
+    for (const l of ambientLeaves) {
+      l.x += l.speedX;
+      l.y += l.speedY;
+      l.rot += 0.02;
+      if (l.x > V_WIDTH + 20) l.x = -20;
+      if (l.y > V_HEIGHT + 20) l.y = -20;
+
+      ctx.fillStyle = l.color;
+      ctx.globalAlpha = 0.55;
+      ctx.save();
+      ctx.translate(l.x, l.y);
+      ctx.rotate(l.rot);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, l.size * 1.6, l.size * 0.75, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  // ==========================================
+  // 5. MOTOR DE RENDERIZADO ILUSTRADO (Canvas 2D)
+  // ==========================================
+
+  // --- Dibujar a la Niña (Anika) ---
+  function drawGirl(ctx, x, y, options = {}) {
+    const scale = options.scale || 1;
+    const facing = options.facingRight !== undefined ? (options.facingRight ? 1 : -1) : 1;
+    const animState = options.state || 'idle'; // idle, run, jump, fall, cry
+    const animTime = options.animTime || 0;
+    const hasDuck = options.hasDuck || false;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale * facing, scale);
+
+    // Rebote sutil en idle y run
+    let bobY = 0;
+    let legL = 0;
+    let legR = 0;
+    let capeAngle = 0;
+
+    if (animState === 'idle') {
+      bobY = Math.sin(animTime * 4) * 2;
+      capeAngle = Math.sin(animTime * 3) * 0.05;
+    } else if (animState === 'run') {
+      bobY = Math.abs(Math.sin(animTime * 12)) * 4;
+      legL = Math.sin(animTime * 12) * 12;
+      legR = -legL;
+      capeAngle = 0.28 + Math.sin(animTime * 12) * 0.15;
+    } else if (animState === 'jump') {
+      bobY = -2;
+      legL = -8;
+      legR = -4;
+      capeAngle = 0.45;
+    } else if (animState === 'fall') {
+      bobY = 1;
+      legL = 4;
+      legR = 7;
+      capeAngle = -0.3;
+    }
+
+    // Sombra en el suelo
+    ctx.save();
+    ctx.fillStyle = 'rgba(20, 25, 30, 0.22)';
+    ctx.beginPath();
+    ctx.ellipse(0, 2, 16, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Piernas / Botitas marrones
+    ctx.fillStyle = '#6d4834';
+    // Pierna izquierda
+    ctx.beginPath();
+    ctx.roundRect(-7 + legL * 0.3, -12 - bobY, 6, 12, 3);
+    ctx.fill();
+    // Pierna derecha
+    ctx.beginPath();
+    ctx.roundRect(1 + legR * 0.3, -12 - bobY, 6, 12, 3);
+    ctx.fill();
+
+    // Vestido azul/verde pastel
+    ctx.fillStyle = '#4c8c82';
+    ctx.beginPath();
+    ctx.moveTo(-11, -12 - bobY);
+    ctx.lineTo(11, -12 - bobY);
+    ctx.lineTo(8, -28 - bobY);
+    ctx.lineTo(-8, -28 - bobY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Capa roja cálida (flameando)
+    ctx.save();
+    ctx.translate(-4, -28 - bobY);
+    ctx.rotate(capeAngle);
+    ctx.fillStyle = '#dc5847';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(-18, 10, -14, 24);
+    ctx.quadraticCurveTo(-4, 20, 4, 16);
+    ctx.lineTo(4, 0);
+    ctx.closePath();
+    ctx.fill();
+    // Borde blanco de la capa
+    ctx.strokeStyle = '#fff8e8';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.restore();
+
+    // Cabeza de la niña (redondita y tierna)
+    const headY = -37 - bobY;
+
+    // Cabello detrás
+    ctx.fillStyle = '#5a3825';
+    ctx.beginPath();
+    ctx.arc(0, headY, 15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Coleta simpática
+    ctx.beginPath();
+    ctx.arc(-13, headY + 3, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Rostro color piel cálido
+    ctx.fillStyle = '#fedec4';
+    ctx.beginPath();
+    ctx.arc(1, headY + 1, 12, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Flequillo redondo
+    ctx.fillStyle = '#5a3825';
+    ctx.beginPath();
+    ctx.arc(1, headY - 4, 12, Math.PI * 0.9, Math.PI * 2.1);
+    ctx.fill();
+
+    // Mejillas sonrosadas
+    ctx.fillStyle = 'rgba(255, 130, 130, 0.55)';
+    ctx.beginPath();
+    ctx.arc(5, headY + 4, 3.2, 0, Math.PI * 2);
+    ctx.arc(-2, headY + 4, 2.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ojos tiernos con brillo
+    ctx.fillStyle = '#221e25';
+    if (animState === 'cry') {
+      // Ojos llorosos / cerrados de pena
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#221e25';
+      ctx.beginPath();
+      ctx.arc(5, headY + 1, 3, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+      // Lágrima
+      ctx.fillStyle = '#6bc5f8';
+      ctx.beginPath();
+      ctx.arc(7, headY + 6, 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.arc(5, headY + 1, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      // Brillo blanco
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(5.8, headY + 0.3, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Boquita tierna
+    ctx.strokeStyle = '#8a4b44';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (animState === 'cry') {
+      ctx.arc(4, headY + 7, 2, Math.PI * 1.1, Math.PI * 1.9); // Triste
+    } else if (animState === 'run' || animState === 'jump') {
+      ctx.arc(4, headY + 5, 2.2, 0, Math.PI); // Sonrisa abierta
+    } else {
+      ctx.arc(4, headY + 5, 1.8, 0.1, Math.PI * 0.9);
+    }
+    ctx.stroke();
+
+    // Capucha / lazo rojo en la cabeza
+    ctx.fillStyle = '#dc5847';
+    ctx.beginPath();
+    ctx.arc(-2, headY - 8, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Peluche de pato en brazos (si lo tiene)
+    if (hasDuck) {
+      drawDuckPlush(ctx, 6, -20 - bobY, 0.85);
+    }
+
+    ctx.restore();
+  }
+
+  // --- Dibujar el Patito de Peluche ---
+  function drawDuckPlush(ctx, x, y, scale = 1, rotation = 0) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+    ctx.scale(scale, scale);
+
+    // Cuerpo amarillo suave
+    ctx.fillStyle = '#ffd13b';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 11, 8.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cabeza
+    ctx.beginPath();
+    ctx.arc(7, -6, 7.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pico naranja tierno
+    ctx.fillStyle = '#ff8324';
+    ctx.beginPath();
+    ctx.moveTo(13, -7);
+    ctx.lineTo(20, -5);
+    ctx.lineTo(13, -3);
+    ctx.closePath();
+    ctx.fill();
+
+    // Ojo de botón negro con brillo
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(9, -7, 1.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(9.5, -7.5, 0.6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ala pequeña con costura
+    ctx.fillStyle = '#f5c026';
+    ctx.beginPath();
+    ctx.ellipse(-2, -1, 5.5, 3.8, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cola respingona
+    ctx.fillStyle = '#ffd13b';
+    ctx.beginPath();
+    ctx.moveTo(-9, -2);
+    ctx.lineTo(-15, -6);
+    ctx.lineTo(-9, 3);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // --- Dibujar el Águila ---
+  function drawEagle(ctx, x, y, scale = 1, wingPhase = 0, carryingDuck = false) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    const wingSpan = Math.sin(wingPhase) * 28;
+
+    // Sombra del águila
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+    ctx.beginPath();
+    ctx.ellipse(0, 110, 35, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ala trasera
+    ctx.fillStyle = '#4a3728';
+    ctx.beginPath();
+    ctx.moveTo(-15, -10);
+    ctx.quadraticCurveTo(-35, -45 - wingSpan, -70, -20 - wingSpan * 0.8);
+    ctx.quadraticCurveTo(-45, -5, -20, 5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Plumas del ala trasera
+    ctx.fillStyle = '#3a2b1f';
+    ctx.beginPath();
+    ctx.moveTo(-45, -5);
+    ctx.lineTo(-70, -20 - wingSpan * 0.8);
+    ctx.lineTo(-60, -5 - wingSpan * 0.4);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cola emplumada
+    ctx.fillStyle = '#ece4d8';
+    ctx.beginPath();
+    ctx.moveTo(-30, 2);
+    ctx.lineTo(-58, 12);
+    ctx.lineTo(-34, 14);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cuerpo robusto
+    ctx.fillStyle = '#5c4432';
+    ctx.beginPath();
+    ctx.ellipse(-10, 0, 28, 17, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pecho moteado
+    ctx.fillStyle = '#e8d8c2';
+    ctx.beginPath();
+    ctx.ellipse(-4, 3, 14, 11, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Cabeza blanca majestuosa
+    ctx.fillStyle = '#f8f5ee';
+    ctx.beginPath();
+    ctx.arc(22, -10, 14, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Ojo ámbar penetrante
+    ctx.fillStyle = '#e8a317';
+    ctx.beginPath();
+    ctx.arc(26, -13, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(27, -13, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pico curvado dorado
+    ctx.fillStyle = '#f5a623';
+    ctx.beginPath();
+    ctx.moveTo(33, -15);
+    ctx.quadraticCurveTo(46, -10, 42, 3);
+    ctx.quadraticCurveTo(34, -2, 32, -4);
+    ctx.closePath();
+    ctx.fill();
+
+    // Ala delantera
+    ctx.fillStyle = '#6e523c';
+    ctx.beginPath();
+    ctx.moveTo(0, -6);
+    ctx.quadraticCurveTo(20, -50 + wingSpan, 60, -25 + wingSpan * 0.8);
+    ctx.quadraticCurveTo(25, -2, -5, 8);
+    ctx.closePath();
+    ctx.fill();
+
+    // Garras doradas
+    ctx.fillStyle = '#f5a623';
+    ctx.beginPath();
+    ctx.arc(-2, 17, 5, 0, Math.PI * 2);
+    ctx.arc(8, 17, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Si lleva el patito atrapado
+    if (carryingDuck) {
+      drawDuckPlush(ctx, 3, 27, 0.95, 0.4);
+    }
+
+    ctx.restore();
+  }
+
+  // --- Dibujar el Lobo Feroz (Figura articulada sólida y estilizada) ---
+  function drawWolf(ctx, x, y, scale = 1, runTime = 0, mouthOpen = false, isJumping = false) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    // Oscilación vertical suave del cuerpo durante la carrera (en salto se estabiliza)
+    const bodyBob = isJumping ? -6 : Math.abs(Math.sin(runTime * 14)) * 4;
+
+    // Sombra del lobo en el suelo
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 38, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Puntos de pivote articulares FIJOS al cuerpo del lobo
+    const hipX = -18;
+    const hipY = -18 - bodyBob;
+    const shoulderX = 16;
+    const shoulderY = -18 - bodyBob;
+
+    // Ángulos de las patas
+    let rearAngleFondo, frontAngleFondo, rearAngleFrente, frontAngleFrente;
+    if (isJumping) {
+      // Pose de salto estilizada: patas delanteras extendidas hacia adelante, traseras hacia atrás
+      frontAngleFrente = 0.45;
+      frontAngleFondo = 0.35;
+      rearAngleFrente = -0.55;
+      rearAngleFondo = -0.45;
+    } else {
+      // Animación de carrera articulada: rotan alrededor de sus pivotes fijos
+      const swing = Math.sin(runTime * 14) * 0.52;
+      frontAngleFrente = swing;
+      rearAngleFrente = -swing;
+      frontAngleFondo = -swing * 0.85;
+      rearAngleFondo = swing * 0.85;
+    }
+
+    // Función auxiliar para dibujar una pata articulada con solape en el torso
+    function renderLeg(jointX, jointY, angle, legColor, pawColor) {
+      ctx.save();
+      ctx.translate(jointX, jointY);
+      ctx.rotate(angle);
+
+      // Muslo / pierna (inicia solapando 5px arriba del pivote para evitar huecos)
+      ctx.fillStyle = legColor;
+      ctx.beginPath();
+      ctx.roundRect(-4.5, -5, 9, 26, 4);
+      ctx.fill();
+
+      // Zarpa / pata inferior redondeada
+      ctx.fillStyle = pawColor;
+      ctx.beginPath();
+      ctx.roundRect(-5.5, 16, 11, 7, 3);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    // 1. Patas del lado lejano (fondo)
+    renderLeg(hipX - 3, hipY, rearAngleFondo, '#2a2c33', '#1e2026');
+    renderLeg(shoulderX - 3, shoulderY, frontAngleFondo, '#2a2c33', '#1e2026');
+
+    // 2. Cola esponjosa (anclada fijamente a la parte trasera del torso)
+    const tailTailWiggle = isJumping ? -0.2 : Math.sin(runTime * 14) * 0.2;
+    ctx.fillStyle = '#3a3d47';
+    ctx.beginPath();
+    ctx.moveTo(hipX - 10, hipY - 2);
+    ctx.quadraticCurveTo(-55, -28 - bodyBob + tailTailWiggle * 18, -48, -8 - bodyBob);
+    ctx.quadraticCurveTo(-38, -2 - bodyBob, hipX - 5, hipY + 8);
+    ctx.closePath();
+    ctx.fill();
+
+    // 3. Torso / Cuerpo atlético (elipse central con solape total sobre las patas)
+    ctx.fillStyle = '#444854';
+    ctx.beginPath();
+    ctx.ellipse(-2, -22 - bodyBob, 32, 17, -0.08, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Pecho fuerte y melena dorsal con púas estilizadas
+    ctx.fillStyle = '#2c2f38';
+    ctx.beginPath();
+    ctx.moveTo(shoulderX - 4, -36 - bodyBob);
+    ctx.lineTo(shoulderX - 14, -42 - bodyBob);
+    ctx.lineTo(shoulderX - 10, -32 - bodyBob);
+    ctx.lineTo(shoulderX - 22, -38 - bodyBob);
+    ctx.lineTo(shoulderX - 20, -26 - bodyBob);
+    ctx.closePath();
+    ctx.fill();
+
+    // 4. Patas del lado cercano (frente)
+    renderLeg(hipX, hipY, rearAngleFrente, '#4d525f', '#363942');
+    renderLeg(shoulderX, shoulderY, frontAngleFrente, '#4d525f', '#363942');
+
+    // 5. Cabeza del lobo (anclada fijamente al frente del torso)
+    const headX = 26;
+    const headY = -30 - bodyBob;
+
+    ctx.fillStyle = '#444854';
+    ctx.beginPath();
+    ctx.arc(headX, headY, 15, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Orejas puntiagudas alertas
+    ctx.fillStyle = '#2c2f38';
+    ctx.beginPath();
+    ctx.moveTo(headX - 6, headY - 12);
+    ctx.lineTo(headX - 2, headY - 26);
+    ctx.lineTo(headX + 6, headY - 12);
+    ctx.closePath();
+    ctx.fill();
+
+    // Interior de la oreja
+    ctx.fillStyle = '#5c4146';
+    ctx.beginPath();
+    ctx.moveTo(headX - 4, headY - 13);
+    ctx.lineTo(headX - 2, headY - 22);
+    ctx.lineTo(headX + 4, headY - 13);
+    ctx.closePath();
+    ctx.fill();
+
+    // Hocico largo
+    ctx.fillStyle = '#3a3d47';
+    ctx.beginPath();
+    ctx.moveTo(headX + 8, headY - 6);
+    ctx.lineTo(headX + 28, headY - 2);
+    ctx.lineTo(headX + 8, headY + 8);
+    ctx.closePath();
+    ctx.fill();
+
+    // Trufa / Nariz negra
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(headX + 28, headY - 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Mandíbula y colmillos
+    if (mouthOpen) {
+      ctx.fillStyle = '#8a2b2b';
+      ctx.beginPath();
+      ctx.moveTo(headX + 10, headY + 2);
+      ctx.lineTo(headX + 24, headY + 5);
+      ctx.lineTo(headX + 12, headY + 12);
+      ctx.closePath();
+      ctx.fill();
+      // Colmillos blancos
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.moveTo(headX + 15, headY + 2);
+      ctx.lineTo(headX + 17, headY + 7);
+      ctx.lineTo(headX + 19, headY + 2);
+      ctx.fill();
+    }
+
+    // Ojo ámbar brillante
+    ctx.fillStyle = '#ffb300';
+    ctx.beginPath();
+    ctx.arc(headX + 8, headY - 5, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(headX + 9, headY - 5, 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // --- Fondos y Paisajes ---
+
+  // --- Fondos y Paisajes Continuos con Optimización Offscreen ---
+
+  // Cielo con gradiente pre-renderizado (cubre 100% de la pantalla)
+  function drawSky(ctx, type = 'day') {
+    if (type === 'day' && offscreen.skyDay) {
+      ctx.drawImage(offscreen.skyDay, 0, 0);
+    } else if (type === 'sunset' && offscreen.skySunset) {
+      ctx.drawImage(offscreen.skySunset, 0, 0);
+    } else if (type === 'twilight' && offscreen.skyTwilight) {
+      ctx.drawImage(offscreen.skyTwilight, 0, 0);
+    } else {
+      ctx.fillStyle = type === 'sunset' ? '#533b68' : (type === 'twilight' ? '#1d1936' : '#78c6e8');
+      ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+    }
+  }
+
+  // Montañas lejanas con capas suaves y tileado continuo (sin cortes ni trabas)
+  function drawMountains(ctx, scrollX = 0, color1 = '#9fc0b5', color2 = '#7da397') {
+    drawParallaxMountains(ctx, scrollX, color1, color2);
+  }
+
+  function drawParallaxMountains(ctx, scrollX = 0, color1 = '#9fc0b5', color2 = '#7da397') {
+    const img = (color1 === '#78435d') ? offscreen.mountainsSunset : offscreen.mountainsDay;
+    drawParallaxLayer(ctx, img, scrollX, 1.0);
+  }
+
+  function drawParallaxLakeHills(ctx, scrollX = 0) {
+    drawParallaxLayer(ctx, offscreen.hillsLake, scrollX, 1.0);
+  }
+
+  // Árboles redondeados estilo cuento de hadas apoyados exactamente en el terreno
+  function drawStoryTree(ctx, x, y, scale = 1, foliageColor = '#5fa867', trunkColor = '#80593f') {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    // Tronco sinuoso firmemente enraizado en el suelo (y = 0)
+    ctx.fillStyle = trunkColor;
+    ctx.beginPath();
+    ctx.moveTo(-14, 0);
+    ctx.quadraticCurveTo(-17, 3, -20, 4);
+    ctx.lineTo(-13, 0);
+    ctx.quadraticCurveTo(-6, -50, -4, -90);
+    ctx.lineTo(4, -90);
+    ctx.quadraticCurveTo(6, -50, 13, 0);
+    ctx.quadraticCurveTo(17, 3, 20, 4);
+    ctx.lineTo(14, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    // Briznas de pasto decorativas en la base del tronco
+    ctx.fillStyle = '#559c47';
+    ctx.beginPath();
+    ctx.arc(-16, 0, 4, Math.PI, 0);
+    ctx.arc(16, 0, 4, Math.PI, 0);
+    ctx.fill();
+
+    // Copa esponjosa en círculos
+    ctx.fillStyle = foliageColor;
+    ctx.beginPath();
+    ctx.arc(0, -110, 42, 0, Math.PI * 2);
+    ctx.arc(-26, -95, 32, 0, Math.PI * 2);
+    ctx.arc(26, -95, 32, 0, Math.PI * 2);
+    ctx.arc(-16, -130, 28, 0, Math.PI * 2);
+    ctx.arc(16, -130, 28, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Brillo suave en la copa
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+    ctx.beginPath();
+    ctx.arc(-10, -118, 22, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // Marco adaptable dinámicamente al texto (sin desbordamiento, centrado y con padding uniforme)
+  function drawInstructionBox(ctx, text, x = 24, y = 20, maxW = 560) {
+    ctx.save();
+    ctx.font = '600 18px Fredoka, Quicksand, sans-serif';
+
+    const words = text.split(' ');
+    const lines = [];
+    let curLine = words[0];
+
+    for (let i = 1; i < words.length; i++) {
+      const testLine = curLine + ' ' + words[i];
+      if (ctx.measureText(testLine).width > maxW - 32) {
+        lines.push(curLine);
+        curLine = words[i];
+      } else {
+        curLine = testLine;
+      }
+    }
+    lines.push(curLine);
+
+    const padX = 16;
+    const padY = 12;
+    const lineHeight = 24;
+
+    let maxTextW = 0;
+    for (const line of lines) {
+      const w = ctx.measureText(line).width;
+      if (w > maxTextW) maxTextW = w;
+    }
+
+    const boxW = Math.ceil(maxTextW + padX * 2);
+    const boxH = Math.ceil(lines.length * lineHeight + padY * 2 - 4);
+
+    // Fondo redondeado con sombra y borde suave
+    ctx.fillStyle = 'rgba(20, 24, 32, 0.72)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, boxW, boxH, 14);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+
+    // Texto perfectamente alineado vertical y horizontalmente
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    lines.forEach((line, idx) => {
+      ctx.fillText(line, x + padX, y + padY + idx * lineHeight);
+    });
+
+    ctx.restore();
+  }
+
+  // Dibuja corazones de vidas en el HUD
+  // cx = centro X, cy = Y de la fila de corazones
+  function drawHearts(ctx, currentLives, maxLives, cx, cy) {
+    ctx.save();
+    const heartW = 26;
+    const gap = 6;
+    const totalW = maxLives * heartW + (maxLives - 1) * gap + 20;
+    const boxX = cx - totalW / 2;
+    const boxH = 32;
+
+    // Fondo pastilla
+    ctx.fillStyle = 'rgba(20, 24, 32, 0.70)';
+    ctx.beginPath();
+    ctx.roundRect(boxX, cy, totalW, boxH, 14);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.font = '20px Fredoka';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < maxLives; i++) {
+      const hx = boxX + 10 + i * (heartW + gap) + heartW / 2;
+      const hy = cy + boxH / 2;
+      ctx.globalAlpha = i < currentLives ? 1 : 0.25;
+      ctx.fillText('❤️', hx, hy);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // Modal de Game Over reutilizable
+  // onRetry y onMenu son funciones llamadas cuando se pulsan los botones
+  function drawGameOverModal(ctx, onRetry, onMenu) {
+    ctx.save();
+    // Fondo oscurecido
+    ctx.fillStyle = 'rgba(14, 12, 22, 0.82)';
+    ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+
+    const modalW = 500;
+    const modalH = 320;
+    const modalX = V_WIDTH / 2;
+    const modalY = V_HEIGHT / 2;
+
+    ctx.save();
+    ctx.translate(modalX, modalY);
+
+    // Fondo modal
+    ctx.fillStyle = 'rgba(28, 24, 38, 0.96)';
+    ctx.beginPath();
+    ctx.roundRect(-modalW / 2, -modalH / 2, modalW, modalH, 24);
+    ctx.fill();
+    ctx.strokeStyle = '#ff5566';
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+
+    // Título
+    ctx.fillStyle = '#ff5566';
+    ctx.font = '700 44px Fredoka, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('💔 PERDISTE', 0, -95);
+
+    ctx.fillStyle = '#ffccd0';
+    ctx.font = '500 20px Fredoka, sans-serif';
+    ctx.fillText('¡No te rindas, inténtalo de nuevo!', 0, -45);
+
+    // Botón REINTENTAR
+    const btnRetryHover = isMouseInBox(modalX, modalY + 25, 280, 52);
+    drawButton(ctx, 0, 25, 280, 52, 'REINTENTAR', btnRetryHover, '🔄');
+    if (mouse.clicked && btnRetryHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      if (onRetry) onRetry();
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
+
+    // Botón VOLVER AL INICIO
+    const btnMenuHover = isMouseInBox(modalX, modalY + 95, 280, 52);
+    drawButton(ctx, 0, 95, 280, 52, 'VOLVER AL INICIO', btnMenuHover, '🏠');
+    if (mouse.clicked && btnMenuHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      if (onMenu) onMenu();
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  // Menú modal de pausa estilizado (Reanudar / Volver al inicio)
+  function drawPauseMenu(ctx) {
+    ctx.save();
+    // Fondo oscurecido semitransparente que cubre 100% de la pantalla
+    ctx.fillStyle = 'rgba(14, 12, 22, 0.75)';
+    ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+
+    // Tarjeta modal redondeada en el centro
+    const modalW = 480;
+    const modalH = 330;
+    const modalX = V_WIDTH / 2;
+    const modalY = V_HEIGHT / 2;
+
+    ctx.save();
+    ctx.translate(modalX, modalY);
+
+    // Sombra y fondo del modal
+    ctx.fillStyle = 'rgba(28, 24, 38, 0.94)';
+    ctx.beginPath();
+    ctx.roundRect(-modalW / 2, -modalH / 2, modalW, modalH, 24);
+    ctx.fill();
+
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+
+    // Título de pausa
+    ctx.fillStyle = '#ffd166';
+    ctx.font = '700 38px Fredoka, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⏸️ JUEGO EN PAUSA', 0, -95);
+
+    // Subtítulo amigable
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '500 19px Fredoka, sans-serif';
+    ctx.fillText('Tómate un respiro en el bosque...', 0, -42);
+
+    // Botón 1: REANUDAR
+    const btnResumeHover = isMouseInBox(modalX, modalY + 30, 270, 52);
+    drawButton(ctx, 0, 30, 270, 52, 'REANUDAR', btnResumeHover, '▶');
+    if (mouse.clicked && btnResumeHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      togglePause();
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
+
+    // Botón 2: VOLVER AL INICIO
+    const btnMenuHover = isMouseInBox(modalX, modalY + 100, 270, 52);
+    drawButton(ctx, 0, 100, 270, 52, 'VOLVER AL INICIO', btnMenuHover, '🏠');
+    if (mouse.clicked && btnMenuHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      isPaused = false;
+      pauseToggleBtn.textContent = '⏸';
+      audio.resume();
+      switchState(STATE.MENU);
+      ctx.restore();
+      ctx.restore();
+      return;
+    }
+
+    ctx.restore();
+    ctx.restore();
+  }
+
+  // Pino nórdico estilizado
+  function drawPineTree(ctx, x, y, scale = 1, color = '#2b6348') {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale, scale);
+
+    // Tronco
+    ctx.fillStyle = '#543b2a';
+    ctx.fillRect(-8, -40, 16, 40);
+
+    // Capas triangulares redondeadas
+    ctx.fillStyle = color;
+    for (let i = 0; i < 4; i++) {
+      const cy = -35 - i * 36;
+      const w = 55 - i * 9;
+      const h = 42;
+      ctx.beginPath();
+      ctx.moveTo(0, cy - h);
+      ctx.lineTo(w, cy);
+      ctx.quadraticCurveTo(0, cy - 6, -w, cy);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Botón estético estilizado para menús
+  function drawButton(ctx, x, y, w, h, text, isHover = false, icon = '') {
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Sombra del botón
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.28)';
+    ctx.beginPath();
+    ctx.roundRect(-w / 2, -h / 2 + 5, w, h, 20);
+    ctx.fill();
+
+    // Fondo del botón con gradiente pastel cálido
+    const grad = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    if (isHover) {
+      grad.addColorStop(0, '#ffd868');
+      grad.addColorStop(1, '#ff9638');
+    } else {
+      grad.addColorStop(0, '#ffbe55');
+      grad.addColorStop(1, '#f27829');
+    }
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(-w / 2, -h / 2, w, h, 20);
+    ctx.fill();
+
+    // Borde brillante
+    ctx.strokeStyle = '#fff3d1';
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+
+    // Texto del botón
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowOffsetY = 2;
+    ctx.shadowBlur = 4;
+    ctx.font = '700 24px Fredoka, Quicksand, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${icon ? icon + ' ' : ''}${text}`, 0, 1);
+
+    ctx.restore();
+  }
+
+  // Comprobar si el ratón está sobre un botón
+  function isMouseInBox(x, y, w, h) {
+    return mouse.x >= x - w / 2 && mouse.x <= x + w / 2 &&
+           mouse.y >= y - h / 2 && mouse.y <= y + h / 2;
+  }
+
+  // ==========================================
+  // 6. CONTROLADOR DE ESTADOS Y TRANSICIONES
+  // ==========================================
+  function switchState(nextState, speed = 0.04, blackHold = 0) {
+    if (pendingNextState) return;
+    pendingNextState = nextState;
+    transitionSpeed = speed;
+    transitionBlackHold = blackHold;
+  }
+
+  // ==========================================
+  // 7. CINEMÁTICA 1: EL RAPTO DEL PATITO
+  // ==========================================
+  const cine1 = {
+    timer: 0,
+    phase: 0, // 0: Sale de casa, 1: Aparece águila, 2: Robo, 3: Reacción y carrera
+    girlX: 200,
+    girlY: 530,
+    hasDuck: true,
+    eagleX: -120,
+    eagleY: 80,
+    eagleCarrying: false,
+    fenceX: 740,
+    cameraX: 0,
+
+    reset() {
+      this.timer = 0;
+      this.phase = 0;
+      this.girlX = 220;
+      this.girlY = 530;
+      this.hasDuck = true;
+      this.eagleX = -100;
+      this.eagleY = 60;
+      this.eagleCarrying = false;
+      this.cameraX = 0;
+    },
+
+    update() {
+      this.timer += 1 / 60;
+
+      // Fase 0: La niña sale de la casa caminando alegremente con su patito
+      if (this.phase === 0) {
+        this.girlX += 1.5;
+        if (this.girlX >= 360) {
+          this.phase = 1;
+          this.timer = 0;
+          audio.sfxEagle();
+        }
+      }
+      // Fase 1: El águila cae en picada hacia la niña
+      else if (this.phase === 1) {
+        const targetX = this.girlX + 6;
+        const targetY = this.girlY - 25;
+        this.eagleX += (targetX - this.eagleX) * 0.06;
+        this.eagleY += (targetY - this.eagleY) * 0.06;
+
+        if (Math.abs(this.eagleX - targetX) < 18 && Math.abs(this.eagleY - targetY) < 18) {
+          this.phase = 2;
+          this.hasDuck = false;
+          this.eagleCarrying = true;
+          this.timer = 0;
+          audio.sfxDuck();
+          audio.sfxEagle();
+        }
+      }
+      // Fase 2: El águila escapa volando alto hacia la derecha
+      else if (this.phase === 2) {
+        this.eagleX += 8.5;
+        this.eagleY -= 4.2;
+
+        if (this.timer > 1.2) {
+          this.phase = 3;
+          this.timer = 0;
+        }
+      }
+      // Fase 3: La niña reacciona, llora un instante, salta la valla y corre hacia el bosque
+      else if (this.phase === 3) {
+        this.eagleX += 9.5;
+        this.eagleY -= 2.5;
+
+        if (this.timer > 0.8) {
+          this.girlX += 5.2;
+
+          // Salto sobre la valla
+          if (this.girlX > this.fenceX - 60 && this.girlX < this.fenceX + 60) {
+            this.girlY = 530 - Math.sin((this.girlX - (this.fenceX - 60)) / 120 * Math.PI) * 75;
+          } else {
+            this.girlY = 530;
+          }
+
+          this.cameraX = Math.max(0, this.girlX - 350);
+
+          if (this.girlX >= 1150) {
+            switchState(STATE.LEVEL1);
+          }
+        }
+      }
+
+      // Saltar cinemática con barra espaciadora o botón táctil
+      if (keys.jumpPressed || keys.esc) {
+        keys.jumpPressed = false;
+        keys.esc = false;
+        switchState(STATE.LEVEL1);
+      }
+    },
+
+    draw(ctx) {
+      // 1. En espacio de pantalla (cubre 100% del canvas sin importar el scroll)
+      drawSky(ctx, 'day');
+
+      // Nubes suaves
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.beginPath();
+      ctx.arc(280, 140, 50, 0, Math.PI * 2);
+      ctx.arc(330, 130, 65, 0, Math.PI * 2);
+      ctx.arc(390, 145, 45, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Montañas de fondo con parallax continuo (sin huecos)
+      drawParallaxMountains(ctx, this.cameraX * 0.2, '#9fc0b5', '#7da397');
+
+      // 2. En espacio de mundo con seguimiento de cámara
+      ctx.save();
+      ctx.translate(-this.cameraX, 0);
+
+      // Suelo de pasto verde que cubre ampliamente ambos lados (sin huecos negros)
+      ctx.fillStyle = '#65a854';
+      ctx.fillRect(-1000, 530, 6000, V_HEIGHT - 530);
+
+      // Capa de tierra debajo del pasto
+      ctx.fillStyle = '#7a553c';
+      ctx.fillRect(-1000, 544, 6000, V_HEIGHT - 544);
+
+      // Bosque de fondo con árboles firmemente apoyados en el suelo (y = 530)
+      for (let i = 0; i < 14; i++) {
+        drawStoryTree(ctx, 420 + i * 115, 530, 0.85, '#6db576', '#694732');
+      }
+
+      // La casita acogedora de Anika (a la izquierda)
+      this.drawHouse(ctx, 110, 530);
+
+      // Flores en el jardín
+      for (let fx = 180; fx < 2400; fx += 55) {
+        ctx.fillStyle = fx % 110 === 0 ? '#ff7e79' : '#ffe169';
+        ctx.beginPath();
+        ctx.arc(fx, 533, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Valla de madera del jardín
+      this.drawFence(ctx, this.fenceX, 530);
+
+      // Dibujar Niña
+      let anim = 'idle';
+      if (this.phase === 0) anim = 'run';
+      else if (this.phase === 1 || this.phase === 2) anim = 'cry';
+      else if (this.phase === 3) {
+        anim = (this.timer <= 0.8) ? 'cry' : (this.girlY < 525 ? 'jump' : 'run');
+      }
+
+      drawGirl(ctx, this.girlX, this.girlY, {
+        scale: 1.5,
+        facingRight: true,
+        state: anim,
+        animTime: stateTime,
+        hasDuck: this.hasDuck
+      });
+
+      // Bocadillo de exclamación cuando el águila ataca
+      if (this.phase === 1 || this.phase === 2) {
+        ctx.save();
+        ctx.translate(this.girlX + 20, this.girlY - 90);
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(0, 0, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#e63946';
+        ctx.font = '700 24px Fredoka';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('!', 0, 2);
+        ctx.restore();
+      }
+
+      // Dibujar Águila (vuela en el aire, nunca entra a la tierra)
+      if (this.phase > 0) {
+        drawEagle(ctx, this.eagleX, this.eagleY, 1.4, stateTime * 14, this.eagleCarrying);
+      }
+
+      ctx.restore();
+
+      // Botón flotante para SALTAR cinemática (en espacio de pantalla)
+      const skipHover = isMouseInBox(V_WIDTH - 110, 42, 160, 42);
+      drawButton(ctx, V_WIDTH - 110, 42, 160, 42, 'SALTAR ▶', skipHover);
+      if (mouse.clicked && skipHover) {
+        mouse.clicked = false;
+        audio.sfxClick();
+        switchState(STATE.LEVEL1);
+      }
+    },
+
+    drawHouse(ctx, x, y) {
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Paredes de madera
+      ctx.fillStyle = '#d99763';
+      ctx.roundRect(-80, -110, 160, 110, 6);
+      ctx.fill();
+
+      // Chimenea
+      ctx.fillStyle = '#8f5a43';
+      ctx.fillRect(30, -165, 24, 60);
+
+      // Humo de la chimenea
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.beginPath();
+      ctx.arc(42, -175 - (stateTime * 15) % 40, 10, 0, Math.PI * 2);
+      ctx.arc(46, -205 - (stateTime * 15) % 40, 15, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Tejado a dos aguas
+      ctx.fillStyle = '#9e382b';
+      ctx.beginPath();
+      ctx.moveTo(-105, -100);
+      ctx.lineTo(0, -165);
+      ctx.lineTo(105, -100);
+      ctx.closePath();
+      ctx.fill();
+
+      // Ventana redonda con marco
+      ctx.fillStyle = '#fff4cc';
+      ctx.beginPath();
+      ctx.arc(-35, -60, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#633d28';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Puerta rústica
+      ctx.fillStyle = '#633d28';
+      ctx.roundRect(15, -75, 38, 75, [18, 18, 0, 0]);
+      ctx.fill();
+
+      // Pomo dorado
+      ctx.fillStyle = '#ffd13b';
+      ctx.beginPath();
+      ctx.arc(23, -36, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    },
+
+    drawFence(ctx, x, y) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.fillStyle = '#eae2d3';
+      ctx.strokeStyle = '#c2b39f';
+      ctx.lineWidth = 1.5;
+
+      for (let i = -1; i <= 2; i++) {
+        const px = i * 22;
+        ctx.beginPath();
+        ctx.moveTo(px - 7, 0);
+        ctx.lineTo(px - 7, -42);
+        ctx.lineTo(px, -52);
+        ctx.lineTo(px + 7, -42);
+        ctx.lineTo(px + 7, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Tablas horizontales
+      ctx.fillRect(-30, -32, 90, 8);
+      ctx.fillRect(-30, -16, 90, 8);
+
+      ctx.restore();
+    }
+  };
+
+  // ==========================================
+  // 8. NIVEL 1: EL LAGO DE LAS ROCAS
+  // ==========================================
+  const level1 = {
+    lives: 3,
+    gameOver: false,
+    player: {
+      x: 80,
+      y: 440,
+      vx: 0,
+      vy: 0,
+      grounded: true,
+      checkpointX: 80,
+      checkpointY: 440,
+      respawning: false,
+      respawnTimer: 0,
+      invulTimer: 0
+    },
+    cameraX: 0,
+    lakeWidth: 2600,
+    transitioning: false,
+
+    // Plataformas y piedras del lago
+    stones: [],
+
+    init() {
+      this.lives = 3;
+      this.gameOver = false;
+      this.player.x = 80;
+      this.player.y = 440;
+      this.player.vx = 0;
+      this.player.vy = 0;
+      this.player.grounded = true;
+      this.player.facingRight = true;
+      this.player.checkpointX = 80;
+      this.player.checkpointY = 440;
+      this.player.respawning = false;
+      this.player.respawnTimer = 0;
+      this.player.invulTimer = 0;
+      this.cameraX = 0;
+      this.transitioning = false;
+
+      // Orilla inicial, piedras con separaciones calculadas y orilla final
+      this.stones = [
+        // Orilla inicial izquierda (hierba que termina exactamente en x = 220)
+        { x: -294, y: 470, w: 1012, h: 250, isGround: true, left: -800, right: 212, safe: true },
+
+        // Secuencia de piedras sobre el lago:
+        // Primera piedra casi pegada al borde (canto visible de tierra=220, borde piedra=224).
+        { x: 252, y: 472, w: 56, h: 68, safe: true },
+        { x: 375, y: 462, w: 52, h: 78, safe: true },
+        { x: 495, y: 474, w: 50, h: 66, safe: true },
+        { x: 615, y: 462, w: 52, h: 78, safe: true },
+        { x: 735, y: 474, w: 50, h: 66, safe: true },
+        { x: 855, y: 460, w: 52, h: 80, safe: true },
+        { x: 975, y: 474, w: 50, h: 66, safe: true },
+        { x: 1095, y: 462, w: 52, h: 78, safe: true },
+        { x: 1215, y: 472, w: 50, h: 68, safe: true },
+        { x: 1335, y: 458, w: 52, h: 82, safe: true },
+        { x: 1455, y: 472, w: 50, h: 68, safe: true },
+        { x: 1575, y: 460, w: 52, h: 80, safe: true },
+        { x: 1695, y: 474, w: 50, h: 66, safe: true },
+        { x: 1815, y: 462, w: 52, h: 78, safe: true },
+        { x: 1935, y: 470, w: 52, h: 70, safe: true },
+
+        // Orilla final derecha (hierba natural que inicia en x = 2040, a solo 79px de la última piedra)
+        { x: 3540, y: 470, w: 3000, h: 250, isGround: true, left: 2040, right: 5040, safe: true }
+      ];
+    },
+
+    update() {
+      const p = this.player;
+
+      if (this.gameOver) return;
+
+      if (p.invulTimer > 0) {
+        p.invulTimer -= 1 / 60;
+      }
+
+      if (p.respawning) {
+        p.respawnTimer -= 1 / 60;
+        if (p.respawnTimer <= 0) {
+          p.respawning = false;
+          p.x = p.checkpointX;
+          p.y = p.checkpointY;
+          p.vx = 0;
+          p.vy = 0;
+          p.invulTimer = BLINK_DURATION; // Exactamente 2 parpadeos en 1 segundo
+        }
+        return;
+      }
+
+      // Si está en transición hacia el Nivel 2, Anika camina suavemente hacia el bosque
+      if (this.transitioning) {
+        p.vx = Math.max(p.vx, 3.2);
+        p.facingRight = true;
+      } else {
+        // Controles horizontales del jugador
+        if (keys.left) {
+          p.vx = -PLAYER_SPEED;
+          p.facingRight = false;
+        } else if (keys.right) {
+          p.vx = PLAYER_SPEED;
+          p.facingRight = true;
+        } else {
+          p.vx *= 0.72; // Desaceleración suave
+        }
+
+        // Salto variable exclusivo del Nivel 1 (salto más bajo y exigente)
+        if (keys.jumpPressed && p.grounded) {
+          p.vy = JUMP_FORCE_LAKE;
+          p.grounded = false;
+          keys.jumpPressed = false;
+          audio.sfxJump();
+          // Polvareda al saltar
+          for (let i = 0; i < 4; i++) {
+            particles.add({
+              x: p.x + (Math.random() * 14 - 7),
+              y: p.y,
+              vx: Math.random() * 2 - 1,
+              vy: -Math.random() * 1.5,
+              size: 2.8,
+              color: '#d6cfc2',
+              life: 22
+            });
+          }
+        }
+
+        // Salto sostenido con rango más corto (exige calcular la pulsación)
+        if (keys.jump && p.vy < 0) {
+          p.vy += JUMP_HOLD_BOOST_LAKE;
+        }
+      }
+
+      // Gravedad
+      p.vy += GRAVITY;
+
+      // Movimiento
+      p.x += p.vx;
+      p.y += p.vy;
+
+      // Comprobación de aterrizaje sobre piedras u orillas
+      // Hitbox ajustada para que los pies no caigan mientras estén sobre tierra o piedra
+      p.grounded = false;
+      const footTol = 8;
+      for (const stone of this.stones) {
+        const top = stone.y;
+        const left = stone.isGround ? (stone.left !== undefined ? stone.left : stone.x - stone.w / 2) : (stone.x - stone.w / 2);
+        const right = stone.isGround ? (stone.right !== undefined ? stone.right : stone.x + stone.w / 2) : (stone.x + stone.w / 2);
+
+        // Solo cae si el centro de sus pies queda realmente fuera de toda plataforma
+        const platformTolerance = stone.isGround ? 0 : footTol;
+        if (p.x >= left - platformTolerance && p.x <= right + platformTolerance) {
+          if (p.y >= top && p.y - p.vy <= top + 18 && p.vy >= 0) {
+            p.y = top;
+            p.vy = 0;
+            p.grounded = true;
+            if (stone.safe) {
+              p.checkpointX = stone.isGround ? Math.max(80, Math.min(p.x, right - 40)) : stone.x;
+              p.checkpointY = stone.y;
+            }
+          }
+        }
+      }
+
+      // Caída al agua: pierde un corazón con chapoteo y reaparición en la última piedra segura
+      if (p.y > 520 && !p.respawning) {
+        audio.sfxSplash();
+        this.lives = Math.max(0, this.lives - 1);
+        p.respawning = true;
+        p.respawnTimer = 0.85;
+
+        // Salpicaduras de agua
+        for (let i = 0; i < 24; i++) {
+          particles.add({
+            x: p.x,
+            y: 520,
+            vx: (Math.random() * 6 - 3),
+            vy: -(Math.random() * 5 + 3),
+            size: 3.5,
+            color: '#a7e4f9',
+            life: 38,
+            gravity: 0.28
+          });
+        }
+
+        // Si pierde las 3 vidas: Game Over
+        if (this.lives <= 0) {
+          this.gameOver = true;
+          return;
+        }
+      }
+
+      // Transición invisible al adentrarse en la orilla del bosque (sin portal ni texto)
+      if (p.x >= 2220 && !this.transitioning) {
+        this.transitioning = true;
+        // Fade out suave de ~1 segundo (velocidad 0.016), momento en negro de 0.5s y fade in directo al Nivel 2
+        switchState(STATE.LEVEL2, 0.016, 0.5);
+      }
+
+      // Suave seguimiento de cámara
+      const targetCamX = p.x - V_WIDTH * 0.38;
+      this.cameraX += (targetCamX - this.cameraX) * 0.08;
+      this.cameraX = Math.max(0, Math.min(this.cameraX, this.lakeWidth - V_WIDTH));
+    },
+
+    draw(ctx) {
+      // 1. Fondo en espacio de pantalla (cubre 100% de la ventana sin huecos ni franjas negras)
+      drawSky(ctx, 'day');
+
+      // Montañas de fondo con parallax continuo (tileado)
+      drawParallaxMountains(ctx, this.cameraX * 0.08, '#94b8ac', '#779e91');
+
+      // Colinas y orilla lejana en el horizonte (sin árboles flotando sobre el agua)
+      drawParallaxLakeHills(ctx, this.cameraX * 0.16);
+
+      // 2. Capa de mundo con seguimiento de cámara
+      ctx.save();
+      ctx.translate(-this.cameraX, 0);
+
+      // Agua del lago: se dibuja antes de la tierra para mantenerla siempre detrás de las orillas.
+      const waterY = 505;
+      const waterGrad = ctx.createLinearGradient(0, waterY, 0, V_HEIGHT);
+      waterGrad.addColorStop(0, '#53a8be');
+      waterGrad.addColorStop(0.3, '#32778f');
+      waterGrad.addColorStop(1, '#1b4b5e');
+      ctx.fillStyle = waterGrad;
+      ctx.fillRect(220, waterY, 1820, V_HEIGHT - waterY);
+
+      // Ondulaciones y reflejos brillantes del agua
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.lineWidth = 2.5;
+      for (let i = 0; i < 18; i++) {
+        const waveX = (i * 150 + stateTime * 35) % 1780 + 230;
+        const waveY = waterY + 8 + (i % 5) * 18;
+        ctx.beginPath();
+        ctx.moveTo(waveX, waveY);
+        ctx.quadraticCurveTo(waveX + 30, waveY - 4, waveX + 60, waveY);
+        ctx.stroke();
+      }
+
+      // Nenúfares y flores flotantes sobre el agua (única vegetación en el lago)
+      for (let i = 0; i < 12; i++) {
+        const lx = 280 + i * 145;
+        const ly = waterY + 12 + (i % 3) * 14;
+        ctx.fillStyle = '#48974a';
+        ctx.beginPath();
+        ctx.ellipse(lx, ly, 15, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (i % 2 === 0) {
+          ctx.fillStyle = '#ff9ebb';
+          ctx.beginPath();
+          ctx.arc(lx, ly - 2, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Orilla inicial: bloque continuo de tierra y césped alineados en el borde x = 220.
+      ctx.fillStyle = '#7a553c';
+      ctx.fillRect(-800, 486, 1020, V_HEIGHT - 486);
+      ctx.fillStyle = '#65a854';
+      ctx.beginPath();
+      ctx.moveTo(-800, 470);
+      ctx.lineTo(212, 470);
+      ctx.quadraticCurveTo(220, 470, 220, 478);
+      ctx.lineTo(220, 486);
+      ctx.lineTo(-800, 486);
+      ctx.closePath();
+      ctx.fill();
+
+      // Orilla de llegada en bloque continuo, con el canto vertical sólido.
+      ctx.fillStyle = '#7a553c';
+      ctx.fillRect(2040, 486, 3000, V_HEIGHT - 486);
+      ctx.fillStyle = '#65a854';
+      ctx.fillRect(2040, 470, 3000, 16);
+
+      // Árboles apoyados en el césped, dibujados después del agua y de las orillas.
+      drawStoryTree(ctx, -30, 470, 0.95, '#569363', '#533b2a');
+      drawStoryTree(ctx, 50, 470, 0.82, '#62a868', '#5e4331');
+      drawStoryTree(ctx, 130, 470, 0.88, '#4f8c5b', '#4d3625');
+
+      // Bosque de la orilla de llegada (árboles plantados sobre el pasto a y = 470)
+      const forestArrivalX = [2080, 2170, 2260, 2360, 2460, 2570, 2690, 2810];
+      const foliagePalettes = ['#4e8c56', '#5ca865', '#3e7845', '#559c5d'];
+      forestArrivalX.forEach((tx, idx) => {
+        drawStoryTree(ctx, tx, 470, 0.85 + (idx % 3) * 0.1, foliagePalettes[idx % 4], '#533b2a');
+      });
+
+      // Dibujar Piedras del lago
+      for (const s of this.stones) {
+        if (!s.isGround) {
+          ctx.save();
+          ctx.translate(s.x, s.y);
+
+          // Cuerpo de la roca
+          ctx.fillStyle = '#787b87';
+          ctx.beginPath();
+          ctx.roundRect(-s.w / 2, 0, s.w, s.h, [14, 14, 8, 8]);
+          ctx.fill();
+
+          // Detalle de sombra en la roca
+          ctx.fillStyle = '#595b64';
+          ctx.beginPath();
+          ctx.roundRect(-s.w / 2 + 5, 10, s.w - 10, s.h - 10, 5);
+          ctx.fill();
+
+          // Capa de musgo verde superior
+          ctx.fillStyle = '#83b85e';
+          ctx.beginPath();
+          ctx.roundRect(-s.w / 2 - 2, -2, s.w + 4, 10, 5);
+          ctx.fill();
+
+          // Destello de agua en la base
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+          ctx.fillRect(-s.w / 2, s.h - 5, s.w, 3);
+
+          ctx.restore();
+        }
+      }
+
+      // Dibujar Jugadora (si no está esperando respawn)
+      const p = this.player;
+      if (!p.respawning && isPlayerBlinkVisible(p.invulTimer)) {
+        let pAnim = 'idle';
+        if (!p.grounded) {
+          pAnim = p.vy < 0 ? 'jump' : 'fall';
+        } else if (Math.abs(p.vx) > 0.4) {
+          pAnim = 'run';
+        }
+
+        drawGirl(ctx, p.x, p.y, {
+          scale: 1.45,
+          facingRight: p.facingRight,
+          state: pAnim,
+          animTime: stateTime,
+          hasDuck: false
+        });
+      }
+
+      // Partículas
+      particles.draw(ctx, 0, 0);
+
+      ctx.restore();
+
+      // Indicadores en pantalla (HUD en espacio de pantalla con zonas organizadas)
+      this.drawHUD(ctx);
+
+      // Modal de Game Over al perder las 3 vidas
+      if (this.gameOver) {
+        drawGameOverModal(ctx,
+          () => { this.gameOver = false; this.init(); },
+          () => { this.gameOver = false; isPaused = false; switchState(STATE.MENU); }
+        );
+      }
+    },
+
+    drawHUD(ctx) {
+      // 1. Esquina superior izquierda: marco con texto de instrucciones (ancho medido, maxW=330)
+      drawInstructionBox(ctx, 'Nivel 1: Salta de piedra en piedra hasta la otra orilla.', 24, 20, 330);
+
+      // 2. Centro superior: barra de progreso (ancho máx 260, centrado con margen amplio)
+      ctx.save();
+      const barW = 260;
+      const barX = V_WIDTH / 2 - barW / 2;
+      const barY = 20;
+      const progress = Math.min(1, Math.max(0, this.player.x / this.lakeWidth));
+
+      ctx.fillStyle = 'rgba(25, 28, 36, 0.65)';
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barW, 26, 13);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.beginPath();
+      ctx.roundRect(barX + 6, barY + 6, barW - 12, 14, 7);
+      ctx.fill();
+
+      ctx.fillStyle = '#7fe58a';
+      ctx.beginPath();
+      ctx.roundRect(barX + 6, barY + 6, (barW - 12) * progress, 14, 7);
+      ctx.fill();
+
+      // Iconos flanqueando la barra
+      ctx.font = '16px Fredoka';
+      ctx.textAlign = 'center';
+      ctx.fillText('👧', barX - 16, barY + 18);
+      ctx.fillText('🌲', barX + barW + 16, barY + 18);
+      ctx.restore();
+
+      // 3. Corazones: 3 vidas, centrados justo debajo de la barra de progreso
+      drawHearts(ctx, this.lives, 3, V_WIDTH / 2, 54);
+    }
+  };
+
+  // ==========================================
+  // 9. NIVEL 2: EL LOBO FEROZ (Runner Automático)
+  // ==========================================
+  const level2 = {
+    distance: 0,
+    targetDistance: 7600,  // Nivel ampliado: más recorrido para acumular tropiezos y permitir que el lobo alcance a Anika.
+    scrollSpeed: 5.6,
+    baseScrollSpeed: RUNNER_BASE_SCROLL_SPEED,
+    lives: 3,
+    gameOver: false,
+    invulTimer: 0,   // segundos de invulnerabilidad tras ser atrapada
+    biteActive: false,
+
+    // Jugadora
+    player: {
+      x: 360,
+      y: 530,
+      vy: 0,
+      grounded: true,
+      stumbleTimer: 0
+    },
+
+    // Lobo que persigue desde atrás
+    wolf: {
+      distanceBehind: 300,
+      growlCooldown: 0,
+      y: 530,          // posición vertical actual del lobo
+      vy: 0,           // velocidad vertical (para saltar troncos)
+      jumpCooldown: 0  // evitar saltar repetidamente el mismo tronco
+    },
+
+    // Obstáculos (Troncos caídos)
+    obstacles: [],
+    spawnTimer: 0,
+    nextLogWidth: 0,
+    spawnPhase: 0,   // controla la variación del ritmo de aparición
+
+    init() {
+      this.distance = 0;
+      this.scrollSpeed = this.baseScrollSpeed;
+      this.lives = 3;
+      this.gameOver = false;
+      this.invulTimer = 0;
+      this.biteActive = false;
+      this.player.y = 530;
+      this.player.vy = 0;
+      this.player.grounded = true;
+      this.player.stumbleTimer = 0;
+      this.wolf.distanceBehind = 300;
+      this.wolf.growlCooldown = 0;
+      this.wolf.y = 530;
+      this.wolf.vy = 0;
+      this.wolf.jumpCooldown = 0;
+      this.obstacles = [];
+      this.spawnTimer = 80 * this.baseScrollSpeed;
+      this.nextLogWidth = 54 + Math.random() * 22;
+      this.spawnPhase = 0;
+    },
+
+    update() {
+      const p = this.player;
+      const w = this.wolf;
+
+      if (this.gameOver) return;
+
+      this.distance += this.scrollSpeed;
+      this.spawnPhase++;
+
+      // --- Generación rítmica sin pares pegados; el claro real nunca es menor a 1.5 saltos ---
+      this.spawnTimer -= this.scrollSpeed;
+      if (this.spawnTimer <= 0 && this.distance < this.targetDistance - 600) {
+        const logH = 34 + Math.random() * 12;
+        const logW = this.nextLogWidth || (54 + Math.random() * 22);
+        const nextWidth = 54 + Math.random() * 22;
+
+        this.obstacles.push({
+          x: V_WIDTH + 80,
+          y: 530,
+          w: logW,
+          h: logH,
+          passed: false,
+          wolfPassed: false
+        });
+
+        // El claro entre bordes se varía dentro del intervalo calculado, con respiro extra ocasional.
+        const section = Math.floor(this.distance / 700) % 3;
+        const gapFloor = section === 2 ? LOG_MIN_GAP + (LOG_MAX_GAP - LOG_MIN_GAP) * 0.35 : LOG_MIN_GAP;
+        const gapCeiling = section === 1 ? LOG_MIN_GAP + (LOG_MAX_GAP - LOG_MIN_GAP) * 0.72 : LOG_MAX_GAP;
+        const clearGap = gapFloor + Math.random() * (gapCeiling - gapFloor);
+        this.spawnTimer = logW / 2 + clearGap + nextWidth / 2;
+        this.nextLogWidth = nextWidth;
+      }
+
+      // --- Salto de la niña (JUMP_FORCE_WOLF ajustado +13% para superar holgadamente los troncos) ---
+      if (keys.jumpPressed && p.grounded) {
+        p.vy = JUMP_FORCE_WOLF;
+        p.grounded = false;
+        keys.jumpPressed = false;
+        audio.sfxJump();
+      }
+      if (keys.jump && p.vy < 0) {
+        p.vy += JUMP_HOLD_BOOST_WOLF;
+      }
+
+      // Gravedad de la niña
+      p.vy += GRAVITY;
+      p.y += p.vy;
+      if (p.y >= 530) {
+        p.y = 530;
+        p.vy = 0;
+        p.grounded = true;
+      }
+
+      // --- Temporizador de invulnerabilidad ---
+      if (this.invulTimer > 0) {
+        this.invulTimer -= 1 / 60;
+        if (this.invulTimer <= 0) {
+          this.invulTimer = 0;
+          this.biteActive = false;
+        }
+      }
+
+      // --- Tropieza con tronco: el lobo se acerca ---
+      if (p.stumbleTimer > 0) {
+        p.stumbleTimer--;
+        this.scrollSpeed = 3.2;
+        w.distanceBehind = Math.max(95, w.distanceBehind - 2.5);
+      } else {
+        this.scrollSpeed = this.baseScrollSpeed;
+        w.distanceBehind = Math.min(300, w.distanceBehind + 0.3);
+      }
+
+      // --- Actualizar obstáculos y colisión niña ---
+      for (let i = this.obstacles.length - 1; i >= 0; i--) {
+        const obs = this.obstacles[i];
+        obs.x -= this.scrollSpeed;
+
+        // Colisión de la niña con el tronco
+        if (!obs.passed) {
+          const girlLeft = p.x - 14;
+          const girlRight = p.x + 14;
+          const girlBottom = p.y;
+          const girlTop = p.y - 52;
+          const obsLeft = obs.x - obs.w / 2;
+          const obsRight = obs.x + obs.w / 2;
+          const obsTop = obs.y - obs.h;
+
+          if (girlRight > obsLeft && girlLeft < obsRight && girlBottom > obsTop) {
+            obs.passed = true;
+            p.stumbleTimer = 45;
+            audio.sfxGrowl();
+            for (let k = 0; k < 10; k++) {
+              particles.add({
+                x: obs.x,
+                y: obs.y - obs.h / 2,
+                vx: Math.random() * 5 - 2,
+                vy: -Math.random() * 4 - 2,
+                size: 4,
+                color: '#8b5a36',
+                life: 30
+              });
+            }
+          }
+        }
+
+        // --- Lobo salta el tronco (+20% más alto, pasa claramente sin rozar) ---
+        // wolfX en coordenadas de pantalla: p.x - w.distanceBehind
+        if (!obs.wolfPassed && w.vy === 0 && w.jumpCooldown <= 0) {
+          // Posición del tronco relativa al lobo (en pantalla)
+          const troncoRelX = obs.x - (p.x - w.distanceBehind);
+          if (troncoRelX > 20 && troncoRelX < 90) {
+            // El tronco está justo adelante del lobo → saltar con gran arco
+            w.vy = -9.2;
+            w.jumpCooldown = 40;
+            // El lobo pierde algo de velocidad al saltar (se separa un poco)
+            if (w.distanceBehind < 300) {
+              w.distanceBehind = Math.min(300, w.distanceBehind + 18);
+            }
+          }
+        }
+        if (obs.wolfPassed === false) {
+          // marcar el tronco como superado por el lobo cuando ya pasó
+          const troncoRelX = obs.x - (p.x - w.distanceBehind);
+          if (troncoRelX < -20) {
+            obs.wolfPassed = true;
+          }
+        }
+
+        if (obs.x < -150) {
+          this.obstacles.splice(i, 1);
+        }
+      }
+
+      // --- Física del lobo (salto sobre troncos) ---
+      if (w.vy !== 0) {
+        w.vy += GRAVITY;
+        w.y += w.vy;
+        if (w.y >= 530) {
+          w.y = 530;
+          w.vy = 0;
+        }
+      }
+      if (w.jumpCooldown > 0) w.jumpCooldown--;
+
+      // --- Gruñido periódico si el lobo está cerca ---
+      w.growlCooldown--;
+      if (w.distanceBehind < 160 && w.growlCooldown <= 0) {
+        audio.sfxGrowl();
+        w.growlCooldown = 110;
+      }
+
+      // --- Si el lobo atrapa a la niña (y no está invulnerable) ---
+      if (w.distanceBehind <= 95 && this.invulTimer <= 0 && !this.biteActive) {
+        audio.sfxGrowl();
+        this.biteActive = true;
+        this.lives = Math.max(0, this.lives - 1);
+        if (this.lives <= 0) {
+          this.gameOver = true;
+          return;
+        }
+        // Reaparecer: empujar al lobo hacia atrás y dar invulnerabilidad
+        w.distanceBehind = 280;
+        this.invulTimer = BLINK_DURATION;
+        p.stumbleTimer = 30;   // Animación de tropiezo breve
+        return;
+      }
+
+      // Meta: Llegar al Gran Pino
+      if (this.distance >= this.targetDistance) {
+        audio.sfxVictory();
+        switchState(STATE.LEVEL3);
+      }
+    },
+
+    draw(ctx) {
+      // Fondo de DÍA (igual que el nivel 1): cielo, montañas verdes, árboles de bosque
+      drawSky(ctx, 'day');
+      drawParallaxMountains(ctx, this.distance * 0.08, '#94b8ac', '#779e91');
+
+      // Árboles del bosque con parallax en mosaico (bases en y=530, paleta del nivel 1)
+      for (let i = 0; i < 14; i++) {
+        const tx = ((i * 185 - this.distance * 0.38) % (V_WIDTH + 370) + V_WIDTH + 370) % (V_WIDTH + 370) - 185;
+        const sc = 0.78 + (i % 3) * 0.08;
+        const fc = ['#4e8c56', '#5ca865', '#3e7845', '#62a868'][i % 4];
+        drawStoryTree(ctx, tx, 530, sc, fc, '#533b2a');
+      }
+
+      // El Gran Pino visible desde el inicio en el horizonte derecho,
+      // acercándose y aumentando su escala con el progreso del nivel hasta sus pies
+      const prog = Math.min(1, Math.max(0, this.distance / this.targetDistance));
+      const pineX = (V_WIDTH - 140) - prog * (V_WIDTH - 140 - 540);
+      const pineScale = 1.35 + prog * 1.85;
+      drawPineTree(ctx, pineX, 530, pineScale, '#1e4832');
+
+      // Suelo con pasto verde (igual al nivel 1) y tierra marrón debajo
+      ctx.fillStyle = '#65a854';
+      ctx.fillRect(0, 530, V_WIDTH, 16);
+      ctx.fillStyle = '#7a553c';
+      ctx.fillRect(0, 546, V_WIDTH, V_HEIGHT - 546);
+
+      // Líneas de velocidad en el suelo (tierra)
+      ctx.strokeStyle = '#8f6040';
+      ctx.lineWidth = 2.5;
+      for (let i = 0; i < 8; i++) {
+        const lx = ((i * 200 - this.distance * 1.1) % (V_WIDTH + 200) + V_WIDTH + 200) % (V_WIDTH + 200) - 100;
+        ctx.beginPath();
+        ctx.moveTo(lx, 558 + (i % 3) * 14);
+        ctx.lineTo(lx + 65, 558 + (i % 3) * 14);
+        ctx.stroke();
+      }
+
+      // Dibujar Obstáculos (Troncos apoyados sobre el suelo: base en y=530, se dibujan hacia arriba)
+      for (const obs of this.obstacles) {
+        ctx.save();
+        // Los troncos tienen base en y=530 → translateY al suelo
+        ctx.translate(obs.x, 530);
+
+        // Cuerpo del tronco (de y=0 hacia arriba -obs.h)
+        ctx.fillStyle = '#5c3a21';
+        ctx.beginPath();
+        ctx.roundRect(-obs.w / 2, -obs.h, obs.w, obs.h, [8, 8, 3, 3]);
+        ctx.fill();
+
+        // Anillos de corte en el lateral izquierdo
+        ctx.fillStyle = '#d49b6a';
+        ctx.beginPath();
+        ctx.ellipse(-obs.w / 2 + 5, -obs.h / 2, 5, obs.h / 2 - 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Musgo en la cima
+        ctx.fillStyle = '#65a854';
+        ctx.beginPath();
+        ctx.roundRect(-obs.w / 2 + 3, -obs.h - 4, obs.w - 6, 8, 4);
+        ctx.fill();
+
+        // Raíz decorativa en la base
+        ctx.fillStyle = '#7a553c';
+        ctx.beginPath();
+        ctx.roundRect(-obs.w / 2 - 4, -6, obs.w + 8, 6, 3);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // Dibujar Lobo corriendo articulado (con salto dinámico sobre troncos)
+      const w = this.wolf;
+      const wolfX = this.player.x - w.distanceBehind;
+      const wolfMouth = w.distanceBehind < 180;
+      const isWolfJumping = w.vy !== 0 || w.y < 530;
+      drawWolf(ctx, wolfX, w.y, 1.55, stateTime, wolfMouth, isWolfJumping);
+
+      // Dibujar a Anika (parpadeante si invulnerable)
+      const p = this.player;
+      const blinkVisible = isPlayerBlinkVisible(this.invulTimer);
+
+      if (blinkVisible) {
+        let pAnim = 'run';
+        if (!p.grounded) {
+          pAnim = p.vy < 0 ? 'jump' : 'fall';
+        } else if (p.stumbleTimer > 0) {
+          pAnim = 'cry';
+        }
+        drawGirl(ctx, p.x, p.y, {
+          scale: 1.5,
+          facingRight: true,
+          state: pAnim,
+          animTime: stateTime,
+          hasDuck: false
+        });
+      }
+
+      // Partículas
+      particles.draw(ctx, 0, 0);
+
+      // HUD
+      this.drawHUD(ctx);
+
+      // Modal de Game Over
+      if (this.gameOver) {
+        drawGameOverModal(ctx,
+          () => { this.gameOver = false; this.init(); },
+          () => { this.gameOver = false; isPaused = false; switchState(STATE.MENU); }
+        );
+      }
+    },
+
+    drawHUD(ctx) {
+      // --- ZONA SUPERIOR IZQUIERDA: instrucciones (maxW=340) ---
+      drawInstructionBox(ctx, 'Nivel 2: ¡Salta los troncos caídos para escapar del lobo!', 24, 20, 340);
+
+      ctx.save();
+
+      // Alerta si el lobo está muy cerca
+      if (this.wolf.distanceBehind < 160) {
+        ctx.fillStyle = 'rgba(230, 57, 70, 0.22)';
+        ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+        ctx.fillStyle = '#ff4d4d';
+        ctx.font = '700 22px Fredoka';
+        ctx.textAlign = 'center';
+        ctx.fillText('¡EL LOBO SE ACERCA!', V_WIDTH / 2, 108);
+      }
+
+      // --- ZONA SUPERIOR CENTRO: barra de progreso (ancho 280, centrada) ---
+      const barW = 280;
+      const barX = V_WIDTH / 2 - barW / 2;
+      const barY = 20;
+      const prog = Math.min(1, this.distance / this.targetDistance);
+
+      ctx.fillStyle = 'rgba(25, 28, 36, 0.65)';
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barW, 28, 14);
+      ctx.fill();
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.beginPath();
+      ctx.roundRect(barX + 8, barY + 8, barW - 16, 12, 6);
+      ctx.fill();
+
+      ctx.fillStyle = '#fca311';
+      ctx.beginPath();
+      ctx.roundRect(barX + 8, barY + 8, (barW - 16) * prog, 12, 6);
+      ctx.fill();
+
+      // Iconos flanqueando la barra
+      ctx.font = '18px Fredoka';
+      ctx.textAlign = 'center';
+      ctx.fillText('🐺', barX - 18, barY + 18);
+      ctx.fillText('🌲', barX + barW + 18, barY + 18);
+
+      ctx.restore();
+
+      // --- CORAZONES: 3 vidas centradas justo debajo de la barra de progreso ---
+      drawHearts(ctx, this.lives, 3, V_WIDTH / 2, 56);
+    }
+  };
+
+  // ==========================================
+  // 10. NIVEL 3: EL GRAN PINO (Doodle Jump / Vertical)
+  // ==========================================
+  const level3 = {
+    lives: 3,
+    gameOver: false,
+    invulTimer: 0,
+    victoryStarted: false,
+    player: {
+      x: V_WIDTH / 2,
+      y: 520,
+      vx: 0,
+      vy: 0,
+      facingRight: true,
+      lastSafeX: V_WIDTH / 2,
+      lastSafeY: 560,
+      onGround: false,
+      supportBranch: null
+    },
+    cameraY: 0,
+    targetHeight: 3600, // Altura del árbol a escalar
+    branches: [],
+    nest: { x: V_WIDTH / 2, y: -3550 },
+
+    getBranchReach(rise) {
+      const gravity = GRAVITY * 0.85;
+      const jumpSpeed = Math.abs(JUMP_FORCE_PINE);
+      const maxRise = (jumpSpeed * jumpSpeed) / (2 * gravity);
+      if (rise < 0 || rise > maxRise) return 0;
+      const descendingTime = (jumpSpeed + Math.sqrt(jumpSpeed * jumpSpeed - 2 * gravity * rise)) / gravity;
+      return MOVE_SPEED_PINE * descendingTime;
+    },
+
+    validateBranchReach(branch, previous) {
+      const gravity = GRAVITY * 0.85;
+      const maxRise = (JUMP_FORCE_PINE * JUMP_FORCE_PINE) / (2 * gravity);
+      const safeRise = maxRise * 0.70;
+      const trunkLeft = V_WIDTH / 2 - 95;
+      const trunkRight = V_WIDTH / 2 + 95;
+      if (branch.branchSide < 0) {
+        branch.x = trunkLeft - branch.w / 2 - 8;
+      } else if (branch.branchSide > 0) {
+        branch.x = trunkRight + branch.w / 2 + 8;
+      }
+
+      let rise = previous.y - branch.y;
+      rise = Math.max(72, Math.min(safeRise, rise));
+      branch.y = previous.y - rise;
+      let edgeGap = Math.max(0, Math.abs(branch.x - previous.x) - (branch.w + previous.w) / 2);
+      let allowedGap = this.getBranchReach(rise) * 0.72;
+      while (edgeGap > allowedGap && rise > 72) {
+        rise = Math.max(72, rise - 4);
+        branch.y = previous.y - rise;
+        allowedGap = this.getBranchReach(rise) * 0.72;
+      }
+      if (edgeGap > allowedGap) {
+        const maxCenterGap = allowedGap + (branch.w + previous.w) / 2;
+        branch.x = previous.x + Math.sign(branch.x - previous.x) * maxCenterGap;
+        edgeGap = Math.max(0, Math.abs(branch.x - previous.x) - (branch.w + previous.w) / 2);
+      }
+      branch.baseX = branch.x;
+      branch.previousX = branch.x;
+      return branch;
+    },
+
+    init() {
+      this.lives = 3;
+      this.gameOver = false;
+      this.invulTimer = 0;
+      this.victoryStarted = false;
+      duckInNest = true;
+      this.player.x = V_WIDTH / 2;
+      this.player.y = 520;
+      this.player.vx = 0;
+      this.player.vy = 0;
+      this.player.facingRight = true;
+      this.player.lastSafeX = V_WIDTH / 2;
+      this.player.lastSafeY = 560;
+      this.player.onGround = false;
+      this.player.supportBranch = null;
+      this.cameraY = 0;
+      this.branches = [];
+
+      // Rama base segura
+      const baseBranch = {
+        x: V_WIDTH / 2,
+        y: 560,
+        w: 240,
+        type: 'normal',
+        baseX: V_WIDTH / 2,
+        broken: false,
+        cracking: 0,
+        angle: 0,
+        foliageScale: 1
+      };
+      this.branches.push(baseBranch);
+
+      // Una rama por piso, alternando hacia fuera del tronco en un zigzag regular.
+      let previous = baseBranch;
+      let row = 0;
+      while (previous.y > -this.targetHeight + 155) {
+        const side = row % 2 === 0 ? -1 : 1;
+        const width = 174 + Math.random() * 22;
+        const type = row > 0 && row % 7 === 5 ? 'fragile' :
+          (row % 8 === 3 ? 'moving' : row % 9 === 7 ? 'spring' : 'normal');
+        const branch = this.validateBranchReach({
+          x: 0,
+          y: previous.y - (92 + Math.random() * 16),
+          w: width,
+          type,
+          moveOffset: Math.random() * Math.PI * 2,
+          broken: false,
+          cracking: 0,
+          branchSide: side,
+          foliageScale: 0.82 + Math.random() * 0.32
+        }, previous);
+        this.branches.push(branch);
+        previous = branch;
+        row++;
+      }
+
+      // Plataforma final ancha y estable, con el nido justo encima.
+      this.nest.x = V_WIDTH / 2;
+      const nestBranch = this.validateBranchReach({
+        x: V_WIDTH / 2,
+        y: previous.y - 86,
+        w: 310,
+        type: 'nestBranch',
+        broken: false,
+        cracking: 0,
+        angle: 0,
+        foliageScale: 1
+      }, previous);
+      this.nest.y = nestBranch.y - 18;
+      this.branches.push(nestBranch);
+    },
+
+    update() {
+      const p = this.player;
+
+      if (this.gameOver || this.victoryStarted) return;
+
+      if (this.invulTimer > 0) {
+        this.invulTimer -= 1 / 60;
+      }
+
+      // Mover la rama bajo los pies junto con la niña, antes de leer controles.
+      for (const b of this.branches) {
+        b.previousX = b.x;
+        if (b.cracking > 0) {
+          b.cracking -= 1 / 60;
+          if (b.cracking <= 0) b.broken = true;
+        }
+        if (b.type === 'moving') {
+          b.x = b.baseX + Math.sin(stateTime * 2.5 + b.moveOffset) * 18;
+        }
+      }
+
+      const wasGrounded = p.onGround && p.supportBranch && !p.supportBranch.broken;
+      if (wasGrounded && p.supportBranch.type === 'moving') {
+        p.x += p.supportBranch.x - p.supportBranch.previousX;
+      }
+
+      // Solo puede saltar desde el apoyo confirmado en el frame anterior.
+      const jumpedFromSupport = keys.jumpPressed && wasGrounded;
+      if (jumpedFromSupport) {
+        p.vy = JUMP_FORCE_PINE;
+        p.onGround = false;
+        p.supportBranch = null;
+        keys.jumpPressed = false;
+        audio.sfxJump();
+      }
+
+      // Movimiento horizontal ágil (MOVE_SPEED_PINE), sin teletransporte lateral.
+      if (keys.left) {
+        p.vx = -MOVE_SPEED_PINE;
+        p.facingRight = false;
+      } else if (keys.right) {
+        p.vx = MOVE_SPEED_PINE;
+        p.facingRight = true;
+      } else {
+        p.vx *= 0.82;
+      }
+
+      p.x += p.vx;
+      p.x = Math.max(18, Math.min(V_WIDTH - 18, p.x));
+
+      const previousY = p.y;
+      const remainsOnBranch = wasGrounded && !jumpedFromSupport &&
+        p.x >= p.supportBranch.x - p.supportBranch.w / 2 &&
+        p.x <= p.supportBranch.x + p.supportBranch.w / 2;
+      if (remainsOnBranch && !jumpedFromSupport) {
+        p.y = p.supportBranch.y;
+        p.vy = 0;
+        p.onGround = true;
+      } else {
+        p.onGround = false;
+        p.supportBranch = null;
+        // Sin apoyo, la gravedad es la única fuerza vertical salvo salto o impulso.
+        p.vy += GRAVITY * 0.85;
+        p.y += p.vy;
+      }
+
+      // Colisión unidireccional: únicamente al caer, cruzando desde arriba la línea sólida.
+      if (p.vy > 0) {
+        for (const b of this.branches) {
+          if (b.broken) continue;
+          const overlapsPlatform = p.x >= b.x - b.w / 2 && p.x <= b.x + b.w / 2;
+          const crossedTop = previousY <= b.y && p.y >= b.y;
+          if (!overlapsPlatform || !crossedTop) continue;
+
+          p.y = b.y;
+          if (b.type === 'nestBranch') {
+            p.vy = 0;
+            p.onGround = true;
+            p.supportBranch = b;
+            this.victoryStarted = true;
+            this.cameraY = b.y - FINAL_CINEMATIC.summitBranchY;
+            audio.sfxVictory();
+            audio.sfxDuck();
+            cineFinal.reset({ x: p.x, y: p.y, branchY: b.y });
+            currentState = STATE.CINE_FINAL;
+            pendingNextState = null;
+            transitionAlpha = 0;
+            return;
+          }
+
+          if (b.type === 'spring') {
+            p.vy = SPRING_BOOST_PINE;
+            audio.sfxBounce();
+          } else {
+            p.vy = 0;
+            p.onGround = true;
+            p.supportBranch = b;
+            if (b.type === 'fragile' && b.cracking <= 0) {
+              b.cracking = 0.48;
+              audio.sfxCrumble();
+            }
+            if (b.type !== 'fragile') {
+              p.lastSafeX = b.x;
+              p.lastSafeY = b.y;
+            }
+          }
+          break;
+        }
+      }
+
+      // Zona de activación que cubre el nido y el peluche, incluso si lo toca en el aire.
+      if (Math.abs(p.x - this.nest.x) < 92 && p.y >= this.nest.y - 62 && p.y <= this.nest.y + 34) {
+        this.victoryStarted = true;
+        audio.sfxVictory();
+        audio.sfxDuck();
+        cineFinal.reset({ x: p.x, y: p.y, branchY: p.y });
+        currentState = STATE.CINE_FINAL;
+        pendingNextState = null;
+        transitionAlpha = 0;
+        return;
+      }
+
+      // La cámara sigue a la niña cuando sube (Doodle Jump)
+      const targetCamY = p.y - V_HEIGHT * 0.55;
+      if (targetCamY < this.cameraY) {
+        // Seguimiento lineal suave, sin rebote ni overshoot.
+        this.cameraY += (targetCamY - this.cameraY) * 0.12;
+      }
+
+      // Caída por debajo de la pantalla: pierde una vida y reaparece en la última rama estable
+      if (p.y > this.cameraY + V_HEIGHT + 40) {
+        audio.sfxSplash();
+        this.lives = Math.max(0, this.lives - 1);
+
+        if (this.lives <= 0) {
+          this.gameOver = true;
+          return;
+        }
+
+        // Reaparece exactamente en la última rama estable previa (nunca más arriba)
+        p.x = p.lastSafeX;
+        p.y = p.lastSafeY;
+        p.vx = 0;
+        p.vy = 0;
+        p.onGround = false;
+        p.supportBranch = null;
+        this.invulTimer = BLINK_DURATION;
+
+        // Se conserva la cámara al reaparecer para evitar cualquier salto de pantalla.
+      }
+    },
+
+    draw(ctx) {
+      cineFinal.buildAssets();
+      const summitProgress = Math.max(0, Math.min(1,
+        (560 - this.player.y) / Math.max(1, 560 - (this.nest.y + 18))
+      ));
+      ctx.save();
+      ctx.translate(0, -this.cameraY);
+
+      // Gradiente de cielo vertical (de atardecer a cielo estelar dorado)
+      const skyGrad = ctx.createLinearGradient(0, 600, 0, -this.targetHeight - 200);
+      skyGrad.addColorStop(0, '#533b68');
+      skyGrad.addColorStop(0.3, '#312b54');
+      skyGrad.addColorStop(0.7, '#1b1c3b');
+      skyGrad.addColorStop(1, '#0e1124');
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, -this.targetHeight - 300, V_WIDTH, this.targetHeight + 1000);
+
+      // Interpolación visual continua al mismo cielo prerenderizado de la cinemática.
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = summitProgress;
+      ctx.drawImage(cineFinal.assets.summitSky, 0, 0);
+      ctx.restore();
+
+      // Estrellas titilantes en las alturas
+      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = 1 - summitProgress;
+      for (let i = 0; i < 65; i++) {
+        const starX = (i * 137) % V_WIDTH;
+        const starY = -this.targetHeight + (i * 62);
+        const blink = Math.sin(stateTime * 4 + i) * 0.4 + 0.6;
+        ctx.globalAlpha = blink;
+        ctx.fillRect(starX, starY, 2.5, 2.5);
+      }
+      ctx.globalAlpha = 1.0;
+
+      // Tronco colosal del Gran Pino (en el centro)
+      const trunkWidth = 190;
+      ctx.fillStyle = '#422c1d';
+      ctx.fillRect(V_WIDTH / 2 - trunkWidth / 2, -this.targetHeight - 200, trunkWidth, this.targetHeight + 900);
+
+      // Corteza del tronco
+      ctx.strokeStyle = '#2b1b11';
+      ctx.lineWidth = 4;
+      for (let y = -this.targetHeight; y < 600; y += 75) {
+        ctx.beginPath();
+        ctx.moveTo(V_WIDTH / 2 - trunkWidth / 2 + 10, y);
+        ctx.quadraticCurveTo(V_WIDTH / 2, y + 25, V_WIDTH / 2 + trunkWidth / 2 - 10, y);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(205, 151, 101, 0.28)';
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.moveTo(V_WIDTH / 2 - 52, -this.targetHeight - 120);
+      ctx.lineTo(V_WIDTH / 2 - 52, 690);
+      ctx.moveTo(V_WIDTH / 2 + 48, -this.targetHeight - 120);
+      ctx.lineTo(V_WIDTH / 2 + 48, 690);
+      ctx.stroke();
+
+      // Dibujar Ramas del pino
+      for (const b of this.branches) {
+        if (b.broken) continue;
+        this.drawBranch(ctx, b);
+      }
+
+      // Dibujar Nido del águila en la cúspide
+      this.drawEagleNest(ctx, this.nest.x, this.nest.y, duckInNest);
+
+      // Dibujar Niña saltando (parpadeante si invulnerable tras reaparecer)
+      const blinkVisible = isPlayerBlinkVisible(this.invulTimer);
+
+      if (blinkVisible) {
+        const pAnim = this.player.vy < 0 ? 'jump' : 'fall';
+        drawGirl(ctx, this.player.x, this.player.y, {
+          scale: 1.45,
+          facingRight: this.player.facingRight,
+          state: pAnim,
+          animTime: stateTime,
+          hasDuck: false
+        });
+      }
+
+      // Partículas
+      particles.draw(ctx, 0, this.cameraY);
+
+      ctx.restore();
+
+      // HUD de altitud y vidas
+      this.drawHUD(ctx);
+
+      // Modal de Game Over
+      if (this.gameOver) {
+        drawGameOverModal(ctx,
+          () => { this.gameOver = false; this.init(); },
+          () => { this.gameOver = false; isPaused = false; switchState(STATE.MENU); }
+        );
+      }
+    },
+
+    drawBranch(ctx, b) {
+      ctx.save();
+      const side = b.type === 'nestBranch' ? 0 : (b.branchSide || (b.x < V_WIDTH / 2 ? -1 : 1));
+      const shake = b.cracking > 0 ? Math.sin(stateTime * 58) * 2.5 : 0;
+      const left = b.x - b.w / 2 + shake;
+      const top = b.y;
+      const dry = b.type === 'fragile';
+      const needleColor = dry ? 'rgba(197, 174, 104, 0.62)' : 'rgba(126, 177, 139, 0.55)';
+
+      // Conector corto y cónico que nace del costado del tronco hacia la plataforma.
+      const trunkEdge = side < 0 ? V_WIDTH / 2 - 95 : V_WIDTH / 2 + 95;
+      const innerEdge = side < 0 ? left + b.w : left;
+      ctx.fillStyle = dry ? '#987958' : '#5b3b28';
+      if (b.type === 'nestBranch') {
+        ctx.lineWidth = 16;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#5b3b28';
+        ctx.beginPath();
+        ctx.moveTo(V_WIDTH / 2 - 42, top + 35); ctx.quadraticCurveTo(V_WIDTH / 2 - 88, top + 25, left + 16, top + 9);
+        ctx.moveTo(V_WIDTH / 2 + 42, top + 35); ctx.quadraticCurveTo(V_WIDTH / 2 + 88, top + 25, left + b.w - 16, top + 9);
+        ctx.stroke();
+      } else {
+        const rootInsideTrunk = trunkEdge - side * 52;
+        ctx.beginPath();
+        ctx.moveTo(rootInsideTrunk, top + 6);
+        ctx.lineTo(innerEdge, top + 3);
+        ctx.lineTo(innerEdge, top + 17);
+        ctx.lineTo(rootInsideTrunk, top + 25);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Follaje decorativo detrás y debajo de la superficie, nunca sobre la hitbox.
+      ctx.globalAlpha = 0.72;
+      ctx.fillStyle = needleColor;
+      if (!dry && b.type !== 'nestBranch') {
+        for (let i = 0; i < 6; i++) {
+          const x = left + 12 + i * ((b.w - 24) / 5);
+          const y = top + 20 + (i % 2) * 5;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          ctx.quadraticCurveTo(x + side * 8, y + 18, x + side * 18, y + 23);
+          ctx.quadraticCurveTo(x + side * 10, y + 7, x, y);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(x + side * 8, y + 12, 8, 4, side * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        ctx.strokeStyle = needleColor;
+        ctx.lineWidth = 3;
+        for (let i = 0; i < 5; i++) {
+          const x = left + 18 + i * ((b.w - 36) / 4);
+          ctx.beginPath();
+          ctx.moveTo(x, top + 20);
+          ctx.lineTo(x + side * 9, top + 31);
+          ctx.moveTo(x, top + 22);
+          ctx.lineTo(x - side * 7, top + 34);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha = 1;
+
+      // Plataforma sólida: esta barra, y solo esta barra, coincide con la hitbox.
+      ctx.fillStyle = dry ? '#a9855d' : '#68472f';
+      ctx.beginPath();
+      ctx.moveTo(left, top);
+      ctx.lineTo(left + b.w, top);
+      ctx.lineTo(left + b.w, top + 12);
+      ctx.quadraticCurveTo(left + b.w, top + 17, left + b.w - 5, top + 17);
+      ctx.lineTo(left + 5, top + 17);
+      ctx.quadraticCurveTo(left, top + 17, left, top + 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = dry ? '#dfc28b' : '#c79a69';
+      ctx.beginPath();
+      ctx.roundRect(left + 5, top, b.w - 10, 3, 2);
+      ctx.fill();
+      ctx.strokeStyle = dry ? 'rgba(85, 57, 35, 0.85)' : 'rgba(53, 36, 25, 0.72)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(left + 10, top + 10);
+      ctx.quadraticCurveTo(b.x, top + 13, left + b.w - 10, top + 9);
+      ctx.stroke();
+
+      if (b.type === 'moving') {
+        ctx.fillStyle = 'rgba(255, 230, 165, 0.9)';
+        ctx.beginPath();
+        ctx.arc(b.x, top + 8, 3, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (b.type === 'spring') {
+        ctx.shadowColor = 'rgba(255, 205, 93, 0.8)';
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = '#d99152';
+        ctx.beginPath();
+        ctx.ellipse(b.x, top - 8, 13, 11, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#f4d18a';
+        ctx.beginPath();
+        ctx.arc(b.x, top - 11, 4, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (dry) {
+        ctx.strokeStyle = '#6e5039';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(b.x - 14, top + 3);
+        ctx.lineTo(b.x - 7, top + 13);
+        ctx.moveTo(b.x + 15, top + 4);
+        ctx.lineTo(b.x + 8, top + 14);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    },
+
+    drawEagleNest(ctx, x, y, showDuck = duckInNest) {
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Nido profundo: cuenco posterior, paja entrelazada y plumas.
+      ctx.fillStyle = '#674832';
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 92, 34, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#a8794c';
+      ctx.beginPath();
+      ctx.ellipse(0, -5, 68, 19, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#d1a56e';
+      ctx.lineWidth = 4;
+      for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.ellipse(0, 3 + i * 3, 76 - i * 5, 24 - i * 2, 0, 0.12, Math.PI - 0.12);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#fff0d8';
+      ctx.beginPath();
+      ctx.ellipse(-35, -12, 12, 5, -0.4, 0, Math.PI * 2);
+      ctx.ellipse(37, -11, 11, 5, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // El peluche se dibuja aparte y solo mientras la única bandera diga que sigue aquí.
+      if (showDuck) {
+        const bounce = Math.sin(stateTime * 2.5) * 1.5;
+        ctx.fillStyle = 'rgba(255, 230, 150, 0.20)';
+        ctx.beginPath();
+        ctx.arc(0, -27 + bounce, 25, 0, Math.PI * 2);
+        ctx.fill();
+        drawDuckPlush(ctx, 0, -26 + bounce, 1.08, 0);
+      }
+
+      // Borde frontal redondeado delante de la parte inferior del peluche.
+      ctx.strokeStyle = '#795437';
+      ctx.lineWidth = 11;
+      ctx.beginPath();
+      ctx.ellipse(0, 3, 82, 25, 0, 0.12, Math.PI - 0.12);
+      ctx.stroke();
+      ctx.strokeStyle = '#e0b779';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(0, 1, 77, 22, 0, 0.16, Math.PI - 0.16);
+      ctx.stroke();
+
+      ctx.restore();
+    },
+
+    drawHUD(ctx) {
+      // 1. Esquina superior izquierda: tarjeta de objetivo autoajustable al texto (maxW = 340)
+      drawInstructionBox(ctx, 'Nivel 3: ¡Salta por las ramas del Gran Pino hasta el nido!', 24, 20, 340);
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(28, 22, 36, 0.58)';
+      ctx.beginPath(); ctx.roundRect(24, 76, 238, 30, 12); ctx.fill();
+      ctx.fillStyle = '#fff0ce'; ctx.font = '500 15px Fredoka'; ctx.textAlign = 'left';
+      ctx.fillText('Ctrl + M: probar cinemática', 36, 96);
+      ctx.restore();
+
+      // 2. Centro superior: 3 vidas mostradas como 3 corazones rojos
+      drawHearts(ctx, this.lives, 3, V_WIDTH / 2, 24);
+
+      ctx.save();
+
+      // 3. Altímetro vertical en el lado derecho
+      ctx.fillStyle = 'rgba(20, 24, 32, 0.65)';
+      ctx.beginPath();
+      ctx.roundRect(V_WIDTH - 65, 80, 42, 340, 16);
+      ctx.fill();
+
+      // Progreso de escalada
+      const climbProgress = Math.min(1, Math.max(0, -this.cameraY / this.targetHeight));
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.beginPath();
+      ctx.roundRect(V_WIDTH - 53, 95, 18, 310, 9);
+      ctx.fill();
+
+      ctx.fillStyle = '#4cc9f0';
+      const barH = 310 * climbProgress;
+      ctx.beginPath();
+      ctx.roundRect(V_WIDTH - 53, 95 + 310 - barH, 18, barH, 9);
+      ctx.fill();
+
+      ctx.font = '22px Fredoka';
+      ctx.textAlign = 'center';
+      ctx.fillText('🐣', V_WIDTH - 44, 75);
+      ctx.fillText('👧', V_WIDTH - 44, 435);
+
+      ctx.restore();
+    }
+  };
+
+  // ==========================================
+  // 11. CINEMÁTICA FINAL: RESCATE EN EL NIDO Y DESCENSO
+  // ==========================================
+  const cineFinal = {
+    timer: 0,
+    assets: null,
+    descentBranches: [],
+    cameraY: 0,
+    startX: 480,
+    startWorldY: 0,
+    topBranchY: FINAL_CINEMATIC.summitBranchY,
+    nestX: V_WIDTH / 2,
+    nestY: 326,
+
+    buildAssets() {
+      if (this.assets) return;
+      const makeCanvas = (width, height) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        return canvas;
+      };
+
+      // Escena de la cima, pre-renderizada: cielo, sol, montañas, pino y horquilla.
+      const top = makeCanvas(V_WIDTH, V_HEIGHT);
+      const topCtx = top.getContext('2d');
+      const sky = topCtx.createLinearGradient(0, 0, 0, V_HEIGHT);
+      sky.addColorStop(0, '#a77caa');
+      sky.addColorStop(0.42, '#e69a9b');
+      sky.addColorStop(0.78, '#f8b579');
+      sky.addColorStop(1, '#ffe0a4');
+      topCtx.fillStyle = sky;
+      topCtx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+
+      // Sol bajo con halo suave.
+      const halo = topCtx.createRadialGradient(965, 210, 18, 965, 210, 190);
+      halo.addColorStop(0, 'rgba(255, 244, 190, 0.92)');
+      halo.addColorStop(0.28, 'rgba(255, 222, 165, 0.35)');
+      halo.addColorStop(1, 'rgba(255, 210, 170, 0)');
+      topCtx.fillStyle = halo;
+      topCtx.fillRect(760, 15, 410, 390);
+      topCtx.fillStyle = '#fff0bc';
+      topCtx.beginPath();
+      topCtx.arc(965, 210, 54, 0, Math.PI * 2);
+      topCtx.fill();
+
+      // Nubes en capas, guardadas en la imagen para evitar trabajo costoso por frame.
+      topCtx.fillStyle = 'rgba(255, 226, 218, 0.42)';
+      [[170, 155, 75], [228, 142, 92], [286, 158, 68], [800, 105, 62], [850, 95, 78], [900, 110, 58]].forEach(([x, y, r]) => {
+        topCtx.beginPath();
+        topCtx.arc(x, y, r, 0, Math.PI * 2);
+        topCtx.fill();
+      });
+
+      // Montañas y bosque lejano.
+      topCtx.fillStyle = '#9b718a';
+      topCtx.beginPath();
+      topCtx.moveTo(0, 500);
+      topCtx.lineTo(190, 330); topCtx.lineTo(360, 490); topCtx.lineTo(590, 315);
+      topCtx.lineTo(825, 500); topCtx.lineTo(1035, 340); topCtx.lineTo(1280, 505);
+      topCtx.lineTo(1280, 720); topCtx.lineTo(0, 720); topCtx.closePath(); topCtx.fill();
+      topCtx.fillStyle = '#526f68';
+      topCtx.beginPath();
+      topCtx.moveTo(0, 570);
+      for (let x = 0; x <= V_WIDTH; x += 70) topCtx.lineTo(x, 525 + Math.sin(x * 0.018) * 28);
+      topCtx.lineTo(V_WIDTH, V_HEIGHT); topCtx.lineTo(0, V_HEIGHT); topCtx.closePath(); topCtx.fill();
+      for (let i = 0; i < 13; i++) {
+        const x = i * 112 - 20;
+        const h = 90 + (i % 4) * 18;
+        topCtx.fillStyle = i % 2 ? '#355b4d' : '#416c56';
+        topCtx.beginPath();
+        topCtx.moveTo(x, 575); topCtx.lineTo(x + 48, 575 - h); topCtx.lineTo(x + 96, 575); topCtx.closePath(); topCtx.fill();
+      }
+      topCtx.strokeStyle = 'rgba(76, 67, 91, 0.72)'; topCtx.lineWidth = 3;
+      for (let i = 0; i < 3; i++) {
+        const x = 190 + i * 46;
+        const y = 270 + (i % 2) * 18;
+        topCtx.beginPath(); topCtx.moveTo(x - 10, y); topCtx.quadraticCurveTo(x, y - 10, x + 10, y); topCtx.stroke();
+      }
+      const summitSky = makeCanvas(V_WIDTH, V_HEIGHT);
+      summitSky.getContext('2d').drawImage(top, 0, 0);
+
+      // Pino de gran tamaño: copa escalonada, tronco afinado y ramas de apoyo.
+      topCtx.fillStyle = '#69452f';
+      topCtx.beginPath();
+      topCtx.moveTo(540, 730); topCtx.lineTo(598, 165); topCtx.quadraticCurveTo(640, 145, 682, 165);
+      topCtx.lineTo(740, 730); topCtx.closePath(); topCtx.fill();
+      topCtx.fillStyle = 'rgba(207, 153, 105, 0.42)';
+      topCtx.beginPath();
+      topCtx.moveTo(588, 700); topCtx.lineTo(622, 180); topCtx.lineTo(644, 175); topCtx.lineTo(632, 710); topCtx.closePath(); topCtx.fill();
+      topCtx.strokeStyle = 'rgba(65, 42, 31, 0.58)';
+      topCtx.lineWidth = 5;
+      for (let y = 235; y < 700; y += 63) {
+        topCtx.beginPath(); topCtx.moveTo(565 - (y - 235) * 0.07, y);
+        topCtx.quadraticCurveTo(640, y + 24, 714 + (y - 235) * 0.07, y - 4); topCtx.stroke();
+      }
+      const pineLayers = [
+        { y: 182, w: 120, h: 160, c: '#416c56' }, { y: 270, w: 190, h: 190, c: '#507d5c' },
+        { y: 375, w: 265, h: 205, c: '#628a63' }, { y: 490, w: 340, h: 220, c: '#75996d' },
+        { y: 620, w: 440, h: 240, c: '#809c70' }
+      ];
+      pineLayers.forEach((layer, idx) => {
+        topCtx.fillStyle = layer.c;
+        topCtx.beginPath();
+        topCtx.moveTo(640, layer.y - layer.h);
+        topCtx.lineTo(640 + layer.w, layer.y);
+        topCtx.quadraticCurveTo(640, layer.y - 34, 640 - layer.w, layer.y);
+        topCtx.closePath(); topCtx.fill();
+        topCtx.strokeStyle = idx % 2 ? 'rgba(195, 220, 164, 0.48)' : 'rgba(220, 230, 180, 0.42)';
+        topCtx.lineWidth = 5;
+        topCtx.beginPath(); topCtx.moveTo(640 - layer.w * 0.72, layer.y - 12);
+        topCtx.quadraticCurveTo(640, layer.y + 4, 640 + layer.w * 0.72, layer.y - 12); topCtx.stroke();
+      });
+      // Horquilla y ramas laterales.
+      topCtx.strokeStyle = '#68462f'; topCtx.lineWidth = 23; topCtx.lineCap = 'round';
+      topCtx.beginPath(); topCtx.moveTo(635, 365); topCtx.quadraticCurveTo(560, 330, 455, 340);
+      topCtx.moveTo(645, 365); topCtx.quadraticCurveTo(720, 325, 825, 340); topCtx.stroke();
+      topCtx.strokeStyle = '#c79b6c'; topCtx.lineWidth = 5;
+      topCtx.beginPath(); topCtx.moveTo(540, 345); topCtx.quadraticCurveTo(470, 332, 440, 344);
+      topCtx.moveTo(740, 345); topCtx.quadraticCurveTo(810, 332, 840, 344); topCtx.stroke();
+      // Ramitas finas, agujas y pequeñas piñas en las puntas de la copa.
+      topCtx.strokeStyle = 'rgba(203, 222, 174, 0.8)'; topCtx.lineWidth = 3;
+      for (let i = 0; i < 9; i++) {
+        const x = 360 + i * 68;
+        const y = 475 + (i % 3) * 42;
+        topCtx.beginPath(); topCtx.moveTo(x, y); topCtx.lineTo(x - 20, y - 17); topCtx.moveTo(x, y); topCtx.lineTo(x + 21, y - 16); topCtx.stroke();
+      }
+      topCtx.fillStyle = '#a9784d';
+      for (const [x, y] of [[514, 398], [747, 462], [557, 532], [705, 588]]) {
+        topCtx.beginPath(); topCtx.ellipse(x, y, 6, 11, -0.25, 0, Math.PI * 2); topCtx.fill();
+        topCtx.strokeStyle = '#d4aa72'; topCtx.lineWidth = 1.5;
+        topCtx.beginPath(); topCtx.moveTo(x - 4, y - 2); topCtx.lineTo(x + 4, y - 2); topCtx.moveTo(x - 3, y + 3); topCtx.lineTo(x + 3, y + 3); topCtx.stroke();
+      }
+
+      // Rama larga de la cima: plataforma visible y continua bajo el recorrido de Anika.
+      topCtx.fillStyle = '#65432e';
+      topCtx.beginPath(); topCtx.moveTo(292, 344); topCtx.lineTo(988, 344); topCtx.lineTo(974, 366);
+      topCtx.quadraticCurveTo(640, 374, 306, 366); topCtx.closePath(); topCtx.fill();
+      topCtx.strokeStyle = '#c89e70'; topCtx.lineWidth = 5;
+      topCtx.beginPath(); topCtx.moveTo(306, 345); topCtx.quadraticCurveTo(640, 351, 974, 345); topCtx.stroke();
+      topCtx.fillStyle = 'rgba(111, 157, 113, 0.65)';
+      for (let x = 330; x < 970; x += 42) {
+        topCtx.beginPath(); topCtx.ellipse(x, 378 + (x % 3) * 2, 18, 8, 0, 0, Math.PI * 2); topCtx.fill();
+      }
+
+      // El cuenco se renderiza por separado para poder retirar el único patito al recogerlo.
+      const makeNestCanvas = (withDuck) => {
+        const nestCanvas = makeCanvas(240, 100);
+        level3.drawEagleNest(nestCanvas.getContext('2d'), 120, 48, withDuck);
+        return nestCanvas;
+      };
+      this.assets = { top, summitSky, nestWithDuck: makeNestCanvas(true), nestEmpty: makeNestCanvas(false) };
+
+      // Fondo vertical prerenderizado para la bajada, con capas de bosque y suelo al final.
+      const descent = makeCanvas(V_WIDTH, 1500);
+      const dCtx = descent.getContext('2d');
+      const descentSky = dCtx.createLinearGradient(0, 0, 0, 1500);
+      descentSky.addColorStop(0, '#bd879f'); descentSky.addColorStop(0.35, '#edaa92');
+      descentSky.addColorStop(0.72, '#f5c17f'); descentSky.addColorStop(1, '#f9d991');
+      dCtx.fillStyle = descentSky; dCtx.fillRect(0, 0, V_WIDTH, 1500);
+      dCtx.fillStyle = 'rgba(255, 230, 213, 0.35)';
+      for (let i = 0; i < 8; i++) {
+        const x = (i * 203 + 40) % V_WIDTH;
+        dCtx.beginPath(); dCtx.ellipse(x, 100 + i * 85, 95, 26, 0, 0, Math.PI * 2); dCtx.fill();
+      }
+      dCtx.fillStyle = '#9c7c91';
+      dCtx.beginPath(); dCtx.moveTo(0, 420);
+      for (let x = 0; x <= V_WIDTH; x += 80) dCtx.lineTo(x, 370 + Math.sin(x * 0.015) * 38);
+      dCtx.lineTo(V_WIDTH, 1500); dCtx.lineTo(0, 1500); dCtx.closePath(); dCtx.fill();
+      // Tronco ancho con base ensanchada.
+      dCtx.fillStyle = '#67452f';
+      dCtx.beginPath(); dCtx.moveTo(550, 0); dCtx.lineTo(585, 1170); dCtx.quadraticCurveTo(640, 1215, 695, 1170);
+      dCtx.lineTo(730, 0); dCtx.closePath(); dCtx.fill();
+      dCtx.strokeStyle = 'rgba(207, 153, 105, 0.35)'; dCtx.lineWidth = 7;
+      for (let y = 35; y < 1190; y += 78) {
+        dCtx.beginPath(); dCtx.moveTo(580, y); dCtx.quadraticCurveTo(640, y + 18, 700, y - 2); dCtx.stroke();
+      }
+      // Árboles lejanos pequeños, apoyados sobre el suelo visible al final del descenso.
+      for (let i = 0; i < 12; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const x = side < 0 ? 90 + Math.floor(i / 2) * 62 : 1190 - Math.floor(i / 2) * 62;
+        const baseY = 1245 - (i % 3) * 4;
+        const tone = ['#648668', '#799774', '#597d68'][i % 3];
+        dCtx.fillStyle = '#78553e'; dCtx.fillRect(x - 4, baseY - 48, 8, 48);
+        dCtx.fillStyle = tone;
+        dCtx.beginPath(); dCtx.arc(x, baseY - 59, 27, 0, Math.PI * 2); dCtx.arc(x - 18, baseY - 48, 21, 0, Math.PI * 2); dCtx.arc(x + 18, baseY - 47, 20, 0, Math.PI * 2); dCtx.fill();
+      }
+      // Pradera, flores y arbustos en la base.
+      dCtx.fillStyle = '#6f9564'; dCtx.fillRect(0, 1245, V_WIDTH, 255);
+      dCtx.fillStyle = '#4e754f'; dCtx.fillRect(0, 1280, V_WIDTH, 220);
+      for (let i = 0; i < 24; i++) {
+        const x = (i * 59 + 19) % V_WIDTH;
+        dCtx.fillStyle = i % 2 ? '#f7d1a1' : '#f4b7b4';
+        dCtx.beginPath(); dCtx.arc(x, 1270 + (i % 5) * 22, 4, 0, Math.PI * 2); dCtx.fill();
+      }
+      this.assets.descent = descent;
+
+      const home = makeCanvas(V_WIDTH, V_HEIGHT);
+      const hCtx = home.getContext('2d');
+      hCtx.fillStyle = '#738e72';
+      hCtx.beginPath(); hCtx.moveTo(0, 390); hCtx.quadraticCurveTo(340, 330, 650, 400);
+      hCtx.quadraticCurveTo(970, 455, V_WIDTH, 370); hCtx.lineTo(V_WIDTH, V_HEIGHT); hCtx.lineTo(0, V_HEIGHT); hCtx.closePath(); hCtx.fill();
+      for (let i = 0; i < 8; i++) {
+        const x = i * 185 - 25;
+        const baseY = 455 + (i % 2) * 20;
+        hCtx.fillStyle = '#795640'; hCtx.fillRect(x + 42, baseY - 75, 14, 75);
+        hCtx.fillStyle = i % 2 ? '#587c63' : '#496f5d';
+        hCtx.beginPath();
+        hCtx.arc(x + 48, baseY - 102, 40, 0, Math.PI * 2);
+        hCtx.arc(x + 20, baseY - 80, 31, 0, Math.PI * 2);
+        hCtx.arc(x + 76, baseY - 82, 32, 0, Math.PI * 2);
+        hCtx.fill();
+      }
+      this.assets.home = home;
+
+      // Casa y valla en capa independiente, para que el camino siempre quede detrás.
+      const homeHouse = makeCanvas(V_WIDTH, V_HEIGHT);
+      const houseCtx = homeHouse.getContext('2d');
+      houseCtx.fillStyle = '#e4bd8c'; houseCtx.fillRect(885, 340, 180, 135);
+      houseCtx.fillStyle = '#815748'; houseCtx.beginPath(); houseCtx.moveTo(860, 345); houseCtx.lineTo(975, 265); houseCtx.lineTo(1090, 345); houseCtx.closePath(); houseCtx.fill();
+      houseCtx.fillStyle = '#704e3e'; houseCtx.fillRect(955, 395, 42, 80);
+      houseCtx.fillStyle = '#d6a86f'; houseCtx.fillRect(955, 395, 42, 8);
+      houseCtx.strokeStyle = '#e7d0a1'; houseCtx.lineWidth = 8;
+      for (let x = 650; x < 850; x += 42) { houseCtx.beginPath(); houseCtx.moveTo(x, 470); houseCtx.lineTo(x, 410); houseCtx.stroke(); }
+      houseCtx.beginPath(); houseCtx.moveTo(630, 430); houseCtx.lineTo(870, 430); houseCtx.stroke();
+      this.assets.homeHouse = homeHouse;
+    },
+
+    reset(start = null) {
+      this.buildAssets();
+      particles.clear();
+      this.timer = 0;
+      duckInNest = true;
+      this.cameraY = 0;
+      this.startX = start ? Math.max(325, Math.min(955, start.x)) : 480;
+      this.topBranchY = FINAL_CINEMATIC.summitBranchY;
+      this.descentBranches = [
+        { x: 435, y: 80, w: 180, branchSide: -1, type: 'normal', broken: false },
+        { x: 845, y: 255, w: 190, branchSide: 1, type: 'normal', broken: false },
+        { x: 435, y: 430, w: 180, branchSide: -1, type: 'normal', broken: false },
+        { x: 845, y: 605, w: 190, branchSide: 1, type: 'normal', broken: false },
+        { x: 435, y: 780, w: 180, branchSide: -1, type: 'normal', broken: false },
+        { x: 845, y: 955, w: 190, branchSide: 1, type: 'normal', broken: false },
+        { x: 640, y: 1130, w: 250, branchSide: 1, type: 'normal', broken: false }
+      ];
+    },
+
+    update() {
+      this.timer += 1 / 60;
+
+      // Saltar cinemática con tecla Espacio o Escape
+      if (keys.jumpPressed || keys.esc) {
+        keys.jumpPressed = false;
+        keys.esc = false;
+        switchState(STATE.VICTORY);
+        return;
+      }
+
+      // Sonido de patito al abrazarlo.
+      if (this.timer > FINAL_CINEMATIC.nest * 0.62 && duckInNest) {
+        duckInNest = false;
+        audio.sfxDuck();
+      }
+
+      // Descenso de cámara lineal, sin rebote ni sobrepaso.
+      const descentStart = FINAL_CINEMATIC.nest;
+      const descentProgress = Math.max(0, Math.min(1, (this.timer - descentStart) / FINAL_CINEMATIC.descent));
+      this.cameraY = -175 + descentProgress * 790;
+
+      // Solo cuatro corazones en instantes definidos, lejos de la cara.
+      if (FINAL_HEART_TIMES.some(time => Math.abs(this.timer - time) < 1 / 60)) {
+        particles.add({
+          x: 790 + (FINAL_HEART_TIMES.findIndex(time => Math.abs(this.timer - time) < 1 / 60) - 1.5) * 28,
+          y: 265,
+          vx: 0,
+          vy: -0.9,
+          size: 9,
+          type: 'heart',
+          life: 52
+        });
+      }
+
+      if (this.timer > FINAL_CINEMATIC.total) {
+        switchState(STATE.VICTORY);
+      }
+    },
+
+    draw(ctx) {
+      const t = this.timer;
+      this.buildAssets();
+      const nestEnd = FINAL_CINEMATIC.nest;
+      const descentEnd = nestEnd + FINAL_CINEMATIC.descent;
+      const homeEnd = descentEnd + FINAL_CINEMATIC.home;
+      const isTop = t < nestEnd;
+      const isDescent = t >= nestEnd && t < descentEnd;
+      const isHome = t >= descentEnd;
+
+      if (isTop) {
+        const progress = Math.min(1, t / nestEnd);
+        const zoom = 1 + progress * 0.12;
+        const walk = Math.min(1, t / (nestEnd * 0.38));
+        const targetX = this.nestX - 92;
+        const girlX = this.startX + (targetX - this.startX) * walk;
+        const hug = Math.max(0, Math.min(1, (t - nestEnd * 0.48) / 0.5));
+
+        ctx.save();
+        ctx.translate(V_WIDTH / 2, V_HEIGHT / 2);
+        ctx.scale(zoom, zoom);
+        ctx.translate(-V_WIDTH / 2, -V_HEIGHT / 2);
+        ctx.drawImage(this.assets.top, 0, 0);
+        const nestImage = duckInNest ? this.assets.nestWithDuck : this.assets.nestEmpty;
+        ctx.drawImage(nestImage, this.nestX - nestImage.width / 2, this.nestY - 48);
+        // Sutil movimiento de nubes en primer plano.
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = '#fff1dc';
+        for (let i = 0; i < 3; i++) {
+          const x = ((i * 510 + stateTime * 7) % (V_WIDTH + 160)) - 80;
+          ctx.beginPath(); ctx.ellipse(x, 120 + i * 46, 68, 14, 0, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // A la izquierda de la copa, en su propia rama y sin tapar el nido.
+        // Coordenada vertical es la línea superior de la rama: los pies nunca se separan de ella.
+        drawGirl(ctx, girlX, this.topBranchY, {
+          scale: 1.82,
+          facingRight: true,
+          state: t < nestEnd * 0.38 ? 'run' : 'idle',
+          animTime: stateTime + hug * 0.45,
+          hasDuck: !duckInNest
+        });
+        // Gesto de abrazo representado por un pequeño balanceo y destellos cálidos.
+        if (!duckInNest) {
+          ctx.strokeStyle = 'rgba(255, 227, 160, 0.75)'; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.arc(girlX + 9, 311, 16 + Math.sin(stateTime * 3) * 1.5, 0.12, Math.PI * 0.9); ctx.stroke();
+        }
+        ctx.restore();
+
+        // Marco breve para el texto narrativo, siempre dentro del canvas.
+        ctx.fillStyle = 'rgba(49, 34, 52, 0.68)';
+        ctx.beginPath(); ctx.roundRect(250, 30, 780, 64, 20); ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 232, 188, 0.8)'; ctx.lineWidth = 2; ctx.stroke();
+        ctx.fillStyle = '#fff6e8'; ctx.font = '600 24px Fredoka'; ctx.textAlign = 'center';
+        ctx.fillText(!duckInNest ? '¡Anika abraza feliz a su patito!' : '¡El nido está justo en la cima del pino!', V_WIDTH / 2, 70, 730);
+      } else if (isDescent) {
+        const progress = Math.max(0, Math.min(1, (t - nestEnd) / FINAL_CINEMATIC.descent));
+        const cameraY = -70 + progress * 805;
+        const segment = progress * (this.descentBranches.length - 1);
+        const branchIndex = Math.min(this.descentBranches.length - 2, Math.floor(segment));
+        const local = segment - branchIndex;
+        const from = this.descentBranches[branchIndex];
+        const to = this.descentBranches[branchIndex + 1];
+        const arc = Math.sin(local * Math.PI) * 38;
+        const girlX = from.x + (to.x - from.x) * local;
+        const girlY = from.y + (to.y - from.y) * local - arc;
+
+        ctx.drawImage(this.assets.descent, 0, 0);
+        ctx.save();
+        ctx.translate(0, -cameraY);
+        // Profundidad del tronco central.
+        ctx.fillStyle = '#64432f';
+        ctx.beginPath(); ctx.moveTo(552, -200); ctx.lineTo(590, 1280); ctx.quadraticCurveTo(640, 1320, 690, 1280);
+        ctx.lineTo(728, -200); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(211, 159, 108, 0.42)'; ctx.lineWidth = 5;
+        for (let y = -100; y < 1280; y += 75) {
+          ctx.beginPath(); ctx.moveTo(578, y); ctx.quadraticCurveTo(640, y + 19, 701, y - 2); ctx.stroke();
+        }
+        for (const branch of this.descentBranches) level3.drawBranch(ctx, branch);
+
+        // Trayectoria en arcos cortos: preparación, salto y aterrizaje en cada rama.
+        const jumpPhase = local < 0.16 ? 'idle' : local > 0.84 ? 'idle' : 'jump';
+        drawGirl(ctx, girlX, girlY, {
+          scale: 1.72,
+          facingRight: to.x >= from.x,
+          state: jumpPhase,
+          animTime: stateTime + local * 0.5,
+          hasDuck: true
+        });
+        // Hojas y destellos escasos que caen junto al tronco.
+        for (let i = 0; i < 7; i++) {
+          const leafY = ((i * 193 + stateTime * (24 + i)) % 1350);
+          const leafX = 215 + ((i * 173 + Math.sin(stateTime + i) * 22) % 850);
+          ctx.fillStyle = i % 2 ? 'rgba(255, 216, 151, 0.72)' : 'rgba(167, 205, 151, 0.75)';
+          ctx.beginPath(); ctx.ellipse(leafX, leafY, 4, 7, Math.sin(stateTime + i), 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.restore();
+        ctx.fillStyle = `rgba(255, 201, 125, ${progress * 0.12})`;
+        ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+
+        ctx.fillStyle = 'rgba(49, 34, 52, 0.62)';
+        ctx.beginPath(); ctx.roundRect(270, 30, 740, 58, 18); ctx.fill();
+        ctx.fillStyle = '#fff6e8'; ctx.font = '600 23px Fredoka'; ctx.textAlign = 'center';
+        ctx.fillText('Con su patito, Anika baja rama por rama...', V_WIDTH / 2, 67, 700);
+      } else if (isHome) {
+        const homeProgress = Math.max(0, Math.min(1, (t - descentEnd) / FINAL_CINEMATIC.home));
+        drawSky(ctx, 'sunset');
+        ctx.drawImage(this.assets.home, 0, 0);
+        updateAndDrawAmbientLeaves(ctx);
+        // Sendero en perspectiva: ancho abajo y estrecho hasta el umbral de la puerta.
+        ctx.fillStyle = 'rgba(221, 174, 117, 0.75)';
+        ctx.beginPath(); ctx.moveTo(460, V_HEIGHT); ctx.quadraticCurveTo(670, 580, 958, 475);
+        ctx.lineTo(996, 475); ctx.quadraticCurveTo(790, 595, 720, V_HEIGHT); ctx.closePath(); ctx.fill();
+        // Casa y valla van por delante del camino, sin cubrir pared ni tejado.
+        ctx.drawImage(this.assets.homeHouse, 0, 0);
+        const walk = Math.min(1, homeProgress / 0.78);
+        const girlX = 220 + walk * 390;
+        drawGirl(ctx, girlX, 550, {
+          scale: 1.75,
+          facingRight: true,
+          state: walk < 1 ? 'run' : 'idle',
+          animTime: stateTime,
+          hasDuck: true
+        });
+        ctx.fillStyle = 'rgba(48, 37, 48, 0.62)';
+        ctx.beginPath(); ctx.roundRect(245, 30, 790, 58, 18); ctx.fill();
+        ctx.fillStyle = '#fff6e8'; ctx.font = '600 23px Fredoka'; ctx.textAlign = 'center';
+        ctx.fillText('¡A casa, juntos, bajo el cielo dorado!', V_WIDTH / 2, 67, 750);
+
+        const fade = Math.max(0, Math.min(1, (t - homeEnd) / FINAL_CINEMATIC.fade));
+        if (fade > 0) {
+          ctx.fillStyle = `rgba(18, 14, 24, ${fade})`;
+          ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+        }
+      }
+
+      // Partículas
+      particles.draw(ctx, 0, 0);
+
+      // Botón SALTAR CINEMÁTICA
+      const btnSkipHover = isMouseInBox(V_WIDTH - 120, V_HEIGHT - 42, 180, 42);
+      drawButton(ctx, V_WIDTH - 120, V_HEIGHT - 42, 180, 42, 'SALTAR ▶', btnSkipHover);
+      if (mouse.clicked && btnSkipHover) {
+        mouse.clicked = false;
+        audio.sfxClick();
+        switchState(STATE.VICTORY);
+      }
+    }
+  };
+
+  // Pantalla de Victoria / Fin
+  function drawVictoryScreen(ctx) {
+    drawSky(ctx, 'sunset');
+    updateAndDrawAmbientLeaves(ctx);
+
+    // Tarjeta elegante de fin de juego
+    ctx.save();
+    ctx.translate(V_WIDTH / 2, V_HEIGHT / 2);
+
+    ctx.fillStyle = 'rgba(25, 20, 32, 0.78)';
+    ctx.beginPath();
+    ctx.roundRect(-280, -210, 560, 420, 24);
+    ctx.fill();
+
+    ctx.strokeStyle = '#ffc857';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Título de FIN
+    ctx.fillStyle = '#ffd166';
+    ctx.font = '700 52px Fredoka';
+    ctx.textAlign = 'center';
+    ctx.fillText('FIN', 0, -130);
+
+    // Ilustración tierna
+    drawGirl(ctx, 0, 10, {
+      scale: 2.0,
+      facingRight: true,
+      state: 'idle',
+      animTime: stateTime,
+      hasDuck: true
+    });
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '500 22px Fredoka';
+    ctx.fillText('Anika y su patito han regresado sanos y salvos a casa.', 0, 75);
+
+    // Botón para volver al inicio
+    const btnHover = isMouseInBox(V_WIDTH / 2, V_HEIGHT / 2 + 145, 280, 54);
+    drawButton(ctx, 0, 145, 280, 54, 'VOLVER AL INICIO', btnHover, '🏠');
+
+    if (mouse.clicked && btnHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      switchState(STATE.MENU);
+    }
+
+    ctx.restore();
+  }
+
+  // ==========================================
+  // 12. PANTALLAS DE MENÚ Y CRÉDITOS
+  // ==========================================
+  function drawMenuScreen(ctx) {
+    // 1. Fondo cielo y montañas continuas (tileado)
+    drawSky(ctx, 'day');
+    drawParallaxMountains(ctx, stateTime * 14, '#9fc0b5', '#7da397');
+
+    // 2. Águila en la pantalla de inicio: Vuela SIEMPRE en el cielo, en el tercio superior (Y: 95-135)
+    // Por encima de los árboles y del horizonte, nunca cruza el suelo (y = 530)
+    const eagleCycle = ((stateTime * 95) % (V_WIDTH + 340)) - 170;
+    const eagleAltitude = 115 + Math.sin(stateTime * 1.8) * 18;
+    drawEagle(ctx, eagleCycle, eagleAltitude, 1.1, stateTime * 9, false);
+
+    // 3. Árboles apoyados exactamente en la línea del suelo (y = 530)
+    for (let i = 0; i < 9; i++) {
+      drawStoryTree(ctx, 70 + i * 165, 530, 1.0, '#5fa867', '#6b4934');
+    }
+
+    // 4. Suelo verde con capa de tierra cubriendo 100% de la base
+    ctx.fillStyle = '#65a854';
+    ctx.fillRect(0, 530, V_WIDTH, V_HEIGHT - 530);
+    ctx.fillStyle = '#7a553c';
+    ctx.fillRect(0, 545, V_WIDTH, V_HEIGHT - 545);
+
+    // Hojas cayendo suavemente
+    updateAndDrawAmbientLeaves(ctx);
+
+    // Niña jugando con su pato en el menú
+    drawGirl(ctx, 320, 530, {
+      scale: 1.8,
+      facingRight: true,
+      state: 'idle',
+      animTime: stateTime,
+      hasDuck: true
+    });
+
+    // Título estilizado estilo libro de cuentos
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+    ctx.shadowOffsetY = 4;
+    ctx.shadowBlur = 8;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '700 68px Fredoka';
+    ctx.textAlign = 'center';
+    ctx.fillText('EL VIAJE DE ANIKA', V_WIDTH / 2 + 80, 170);
+
+    ctx.fillStyle = '#fce295';
+    ctx.font = '600 26px Fredoka';
+    ctx.fillText('Una tierna odisea por el bosque', V_WIDTH / 2 + 80, 220);
+    ctx.restore();
+
+    // 1. Botón INICIAR (Comienza la historia desde la cinemática inicial)
+    const btnPlayHover = isMouseInBox(V_WIDTH / 2 + 80, 285, 260, 52);
+    drawButton(ctx, V_WIDTH / 2 + 80, 285, 260, 52, 'INICIO', btnPlayHover, '▶');
+    if (mouse.clicked && btnPlayHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      cine1.reset();
+      switchState(STATE.CINE1);
+      return;
+    }
+
+    // 2. Botón NIVELES (Selector de niveles directo)
+    const btnLevelsHover = isMouseInBox(V_WIDTH / 2 + 80, 350, 260, 52);
+    drawButton(ctx, V_WIDTH / 2 + 80, 350, 260, 52, 'NIVELES', btnLevelsHover, '⭐');
+    if (mouse.clicked && btnLevelsHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      switchState(STATE.LEVEL_SELECT);
+      return;
+    }
+
+    // 3. Botón CRÉDITOS
+    const btnCredHover = isMouseInBox(V_WIDTH / 2 + 80, 415, 260, 52);
+    drawButton(ctx, V_WIDTH / 2 + 80, 415, 260, 52, 'CRÉDITOS', btnCredHover, '📜');
+    if (mouse.clicked && btnCredHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      switchState(STATE.CREDITS);
+      return;
+    }
+  }
+
+  // ==========================================
+  // PANTALLA: SELECTOR DE NIVELES (1, 2 y 3)
+  // ==========================================
+  function drawLevelSelectScreen(ctx) {
+    drawSky(ctx, 'day');
+    drawParallaxMountains(ctx, stateTime * 14, '#9fc0b5', '#7da397');
+    updateAndDrawAmbientLeaves(ctx);
+
+    ctx.save();
+    ctx.translate(V_WIDTH / 2, V_HEIGHT / 2);
+
+    // Marco estilo libro de cuentos
+    const modalW = 760;
+    const modalH = 460;
+    ctx.fillStyle = 'rgba(28, 22, 36, 0.92)';
+    ctx.beginPath();
+    ctx.roundRect(-modalW / 2, -modalH / 2, modalW, modalH, 26);
+    ctx.fill();
+
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    // Título y subtítulo
+    ctx.fillStyle = '#ffd166';
+    ctx.font = '700 40px Fredoka';
+    ctx.textAlign = 'center';
+    ctx.fillText('SELECCIONAR NIVEL', 0, -165);
+
+    ctx.fillStyle = '#ffeedb';
+    ctx.font = '500 20px Fredoka';
+    ctx.fillText('Elige una aventura para jugar con vidas completas:', 0, -125);
+
+    // 3 Tarjetas grandes y redondeadas con los números 1, 2 y 3
+    const levelsData = [
+      { id: 1, name: 'El Lago', icon: '💧', desc: 'Cruza las piedras', state: STATE.LEVEL1, init: () => level1.init() },
+      { id: 2, name: 'El Lobo', icon: '🐺', desc: 'Salta los troncos', state: STATE.LEVEL2, init: () => level2.init() },
+      { id: 3, name: 'El Gran Pino', icon: '🌲', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
+    ];
+
+    const cardW = 200;
+    const cardH = 210;
+    const startX = -230;
+    const spacingX = 230;
+    const cardY = 5;
+
+    levelsData.forEach((lvl, idx) => {
+      const cx = startX + idx * spacingX;
+      const cy = cardY;
+      const hover = isMouseInBox(V_WIDTH / 2 + cx, V_HEIGHT / 2 + cy, cardW, cardH);
+
+      ctx.save();
+      ctx.translate(cx, cy);
+
+      // Fondo tarjeta con efecto hover
+      ctx.fillStyle = hover ? 'rgba(75, 55, 95, 0.95)' : 'rgba(44, 34, 58, 0.88)';
+      ctx.beginPath();
+      ctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 20);
+      ctx.fill();
+
+      ctx.strokeStyle = hover ? '#ffd166' : 'rgba(255, 209, 102, 0.45)';
+      ctx.lineWidth = hover ? 3.5 : 2;
+      ctx.stroke();
+
+      // Botón circular grande con el número del nivel
+      ctx.fillStyle = hover ? '#ffd166' : '#fca311';
+      ctx.beginPath();
+      ctx.arc(0, -cardH / 2 + 45, 28, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#221528';
+      ctx.font = '700 28px Fredoka';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(lvl.id), 0, -cardH / 2 + 46);
+
+      // Título del nivel
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 22px Fredoka';
+      ctx.fillText(lvl.name, 0, 18);
+
+      // Icono
+      ctx.font = '24px Fredoka';
+      ctx.fillText(lvl.icon, 0, 50);
+
+      // Subtítulo
+      ctx.fillStyle = '#dcd2ea';
+      ctx.font = '500 16px Fredoka';
+      ctx.fillText(lvl.desc, 0, 78);
+
+      ctx.restore();
+
+      // Click o touch en la tarjeta
+      if (mouse.clicked && hover) {
+        mouse.clicked = false;
+        audio.sfxClick();
+        lvl.init();
+        switchState(lvl.state);
+      }
+    });
+
+    // Botón VOLVER al menú principal
+    const btnBackHover = isMouseInBox(V_WIDTH / 2, V_HEIGHT / 2 + 175, 220, 50);
+    drawButton(ctx, 0, 175, 220, 50, 'VOLVER', btnBackHover, '↩');
+    if (mouse.clicked && btnBackHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      switchState(STATE.MENU);
+    }
+
+    ctx.restore();
+  }
+
+  // Pantalla de Créditos
+  function drawCreditsScreen(ctx) {
+    drawSky(ctx, 'day');
+    drawMountains(ctx, 0);
+    updateAndDrawAmbientLeaves(ctx);
+
+    ctx.save();
+    ctx.translate(V_WIDTH / 2, V_HEIGHT / 2);
+
+    // Cuadro de pergamino
+    ctx.fillStyle = 'rgba(30, 25, 38, 0.85)';
+    ctx.beginPath();
+    ctx.roundRect(-320, -220, 640, 440, 24);
+    ctx.fill();
+
+    ctx.strokeStyle = '#ffd166';
+    ctx.lineWidth = 3.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffd166';
+    ctx.font = '700 40px Fredoka';
+    ctx.textAlign = 'center';
+    ctx.fillText('CRÉDITOS', 0, -150);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '500 20px Fredoka';
+    ctx.fillText('Inspirado en el clásico de aventuras "Anika\'s Odyssey"', 0, -90);
+    ctx.fillText('Desarrollado con HTML5, Canvas y Web Audio API sin librerías externas.', 0, -50);
+
+    ctx.fillStyle = '#ffbe55';
+    ctx.fillText('CONTROLES:', 0, 5);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '400 18px Fredoka';
+    ctx.fillText('Moverse: Flechas Izquierda/Derecha o A / D', 0, 38);
+    ctx.fillText('Saltar: Barra Espaciadora o Flecha Arriba / W', 0, 68);
+    ctx.fillText('Móvil: Controles táctiles en pantalla', 0, 98);
+
+    // Botón Volver
+    const btnBackHover = isMouseInBox(V_WIDTH / 2, V_HEIGHT / 2 + 160, 220, 52);
+    drawButton(ctx, 0, 160, 220, 52, 'VOLVER', btnBackHover, '◀');
+    if (mouse.clicked && btnBackHover) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      switchState(STATE.MENU);
+    }
+
+    ctx.restore();
+  }
+
+  // ==========================================
+  // 13. BUCLE PRINCIPAL DE JUEGO (GAME LOOP)
+  // ==========================================
+  let lastTime = performance.now();
+
+  function gameLoop(now) {
+    const dt = Math.min(0.1, (now - lastTime) / 1000);
+    lastTime = now;
+
+    // Actualizar visibilidad del botón de pausa (solo en los niveles 1, 2 y 3)
+    const canPause = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.LEVEL3);
+    pauseToggleBtn.style.display = canPause ? 'flex' : 'none';
+
+    // Si NO está en pausa, actualizar tiempo, música y física
+    if (!isPaused) {
+      stateTime += dt;
+
+      // Actualizar música de fondo según el estado
+      if (currentState === STATE.MENU || currentState === STATE.LEVEL_SELECT || currentState === STATE.CREDITS || currentState === STATE.CINE1) {
+        audio.setMusicTrack('MENU');
+      } else if (currentState === STATE.LEVEL1) {
+        audio.setMusicTrack('LAKE');
+      } else if (currentState === STATE.LEVEL2) {
+        audio.setMusicTrack('WOLF');
+      } else if (currentState === STATE.LEVEL3) {
+        audio.setMusicTrack('PINE');
+      } else if (currentState === STATE.CINE_FINAL || currentState === STATE.VICTORY) {
+        audio.setMusicTrack('VICTORY');
+      }
+
+      // Actualizar lógica según el estado activo
+      if (!pendingNextState || transitionAlpha < 1) {
+        if (currentState === STATE.CINE1) cine1.update();
+        else if (currentState === STATE.LEVEL1) level1.update();
+        else if (currentState === STATE.LEVEL2) level2.update();
+        else if (currentState === STATE.LEVEL3) level3.update();
+        else if (currentState === STATE.CINE_FINAL) cineFinal.update();
+      }
+
+      particles.update();
+    }
+
+    // 1. SIEMPRE pintar primero un color base sólido para que NUNCA quede negro en ninguna franja
+    const baseSkyColors = {
+      [STATE.MENU]: '#78c6e8',
+      [STATE.LEVEL_SELECT]: '#78c6e8',
+      [STATE.CREDITS]: '#78c6e8',
+      [STATE.CINE1]: '#78c6e8',
+      [STATE.LEVEL1]: '#78c6e8',
+      [STATE.LEVEL2]: '#78c6e8',  // Nivel 2 ahora usa fondo de día
+      [STATE.LEVEL3]: '#0e1124',
+      [STATE.CINE_FINAL]: '#533b68',
+      [STATE.VICTORY]: '#533b68'
+    };
+    ctx.fillStyle = baseSkyColors[currentState] || '#78c6e8';
+    ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+
+    // 2. Renderizado según el estado activo
+    if (currentState === STATE.MENU) drawMenuScreen(ctx);
+    else if (currentState === STATE.LEVEL_SELECT) drawLevelSelectScreen(ctx);
+    else if (currentState === STATE.CREDITS) drawCreditsScreen(ctx);
+    else if (currentState === STATE.CINE1) cine1.draw(ctx);
+    else if (currentState === STATE.LEVEL1) level1.draw(ctx);
+    else if (currentState === STATE.LEVEL2) level2.draw(ctx);
+    else if (currentState === STATE.LEVEL3) level3.draw(ctx);
+    else if (currentState === STATE.CINE_FINAL) cineFinal.draw(ctx);
+    else if (currentState === STATE.VICTORY) drawVictoryScreen(ctx);
+
+    // 3. Si está en pausa, dibujar el menú modal de pausa por encima
+    if (isPaused) {
+      drawPauseMenu(ctx);
+    }
+
+    // 4. Manejo de transiciones suaves entre estados (Fade to Black / Fade in)
+    if (!isPaused) {
+      if (pendingNextState) {
+        transitionAlpha += transitionSpeed;
+        if (transitionAlpha >= 1) {
+          transitionAlpha = 1;
+          if (transitionBlackHold > 0) {
+            transitionBlackHold -= dt;
+          } else {
+            currentState = pendingNextState;
+            pendingNextState = null;
+
+            // Inicializar nuevo estado
+            if (currentState === STATE.LEVEL1) level1.init();
+            else if (currentState === STATE.LEVEL2) level2.init();
+            else if (currentState === STATE.LEVEL3) level3.init();
+            else if (currentState === STATE.CINE_FINAL) cineFinal.buildAssets();
+          }
+        }
+      } else if (transitionAlpha > 0) {
+        transitionAlpha -= transitionSpeed;
+        if (transitionAlpha < 0) transitionAlpha = 0;
+      }
+    }
+
+    if (transitionAlpha > 0) {
+      ctx.fillStyle = `rgba(18, 14, 24, ${transitionAlpha})`;
+      ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+    }
+
+    // Resetear clic de ratón por fotograma
+    mouse.clicked = false;
+    keys.jumpPressed = false;
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // Iniciar bucle
+  requestAnimationFrame(gameLoop);
+
+  </script>
+</body>
+</html>
