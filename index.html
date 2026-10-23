@@ -196,6 +196,13 @@
   const JUMP_FORCE_PINE = -14.6;      // Salto vertical más alto
   const MOVE_SPEED_PINE = 6.8;        // Mayor velocidad lateral para alcanzar ramas más lejanas
   const SPRING_BOOST_PINE = -20.5;    // Impulso súper elástico con piña resorte
+  const PINE_GRAVITY = GRAVITY * 0.85;
+  const PINE_MAX_RISE = (JUMP_FORCE_PINE * JUMP_FORCE_PINE) / (2 * PINE_GRAVITY);
+  const BRANCH_VERTICAL_GAP = PINE_MAX_RISE * 0.82;
+  const SAME_SIDE_CHANCE = 1 / 7;
+  const BRANCH_HORIZONTAL_REACH_RATIO = 0.72;
+  const SUMMIT_CROWN_START_PROGRESS = 0.80;
+  const PINE_BRANCH_INSET = 10;
 
   // Constantes de invulnerabilidad y parpadeo al reaparecer (común a todos los niveles: exactamente 2 parpadeos en ~1 segundo)
   const BLINK_COUNT = 2;          // Exactamente 2 parpadeos completos (visible -> invisible -> visible -> invisible -> visible)
@@ -2848,40 +2855,53 @@
     nest: { x: V_WIDTH / 2, y: -3550 },
 
     getBranchReach(rise) {
-      const gravity = GRAVITY * 0.85;
       const jumpSpeed = Math.abs(JUMP_FORCE_PINE);
-      const maxRise = (jumpSpeed * jumpSpeed) / (2 * gravity);
-      if (rise < 0 || rise > maxRise) return 0;
-      const descendingTime = (jumpSpeed + Math.sqrt(jumpSpeed * jumpSpeed - 2 * gravity * rise)) / gravity;
+      if (rise < 0 || rise > PINE_MAX_RISE) return 0;
+      const descendingTime = (jumpSpeed + Math.sqrt(jumpSpeed * jumpSpeed - 2 * PINE_GRAVITY * rise)) / PINE_GRAVITY;
       return MOVE_SPEED_PINE * descendingTime;
     },
 
-    validateBranchReach(branch, previous) {
-      const gravity = GRAVITY * 0.85;
-      const maxRise = (JUMP_FORCE_PINE * JUMP_FORCE_PINE) / (2 * gravity);
-      const safeRise = maxRise * 0.70;
+    validateBranchReach(branch, previous, existingBranches = []) {
       const trunkLeft = V_WIDTH / 2 - 95;
       const trunkRight = V_WIDTH / 2 + 95;
-      if (branch.branchSide < 0) {
-        branch.x = trunkLeft - branch.w / 2 - 8;
-      } else if (branch.branchSide > 0) {
-        branch.x = trunkRight + branch.w / 2 + 8;
-      }
+      const setBranchX = () => {
+        if (branch.type === 'nestBranch') {
+          branch.x = V_WIDTH / 2;
+        } else if (branch.branchSide < 0) {
+          branch.x = trunkLeft - branch.w / 2 + PINE_BRANCH_INSET;
+        } else if (branch.branchSide > 0) {
+          branch.x = trunkRight + branch.w / 2 - PINE_BRANCH_INSET;
+        }
+      };
+      setBranchX();
 
       let rise = previous.y - branch.y;
-      rise = Math.max(72, Math.min(safeRise, rise));
+      rise = Math.max(BRANCH_VERTICAL_GAP * 0.96, Math.min(BRANCH_VERTICAL_GAP, rise));
       branch.y = previous.y - rise;
-      let edgeGap = Math.max(0, Math.abs(branch.x - previous.x) - (branch.w + previous.w) / 2);
-      let allowedGap = this.getBranchReach(rise) * 0.72;
-      while (edgeGap > allowedGap && rise > 72) {
-        rise = Math.max(72, rise - 4);
-        branch.y = previous.y - rise;
-        allowedGap = this.getBranchReach(rise) * 0.72;
+
+      if (!branch.sameSideException && branch.branchSide !== 0) {
+        for (const candidate of existingBranches) {
+          if (candidate.sameSideException || candidate.branchSide !== branch.branchSide) continue;
+          if (Math.abs(candidate.y - branch.y) <= PINE_MAX_RISE) {
+            branch.y = Math.min(branch.y, candidate.y - PINE_MAX_RISE * 1.05);
+          }
+        }
       }
+
+      rise = previous.y - branch.y;
+      if (rise > BRANCH_VERTICAL_GAP) {
+        branch.branchSide = -previous.branchSide;
+        branch.y = previous.y - BRANCH_VERTICAL_GAP;
+        setBranchX();
+        rise = BRANCH_VERTICAL_GAP;
+      }
+
+      const movingAllowance = (branch.type === 'moving' ? 18 : 0) + (previous.type === 'moving' ? 18 : 0);
+      let edgeGap = Math.max(0, Math.abs(branch.x - previous.x) - (branch.w + previous.w) / 2) + movingAllowance;
+      const allowedGap = this.getBranchReach(rise) * BRANCH_HORIZONTAL_REACH_RATIO;
       if (edgeGap > allowedGap) {
-        const maxCenterGap = allowedGap + (branch.w + previous.w) / 2;
-        branch.x = previous.x + Math.sign(branch.x - previous.x) * maxCenterGap;
-        edgeGap = Math.max(0, Math.abs(branch.x - previous.x) - (branch.w + previous.w) / 2);
+        branch.x -= Math.sign(branch.x - previous.x) * (edgeGap - allowedGap);
+        edgeGap = allowedGap;
       }
       branch.baseX = branch.x;
       branch.previousX = branch.x;
@@ -2923,14 +2943,14 @@
       // Una rama por piso, alternando hacia fuera del tronco en un zigzag regular.
       let previous = baseBranch;
       let row = 0;
+      let previousRowFragile = false;
       while (previous.y > -this.targetHeight + 155) {
-        const side = row % 2 === 0 ? -1 : 1;
+        const side = -previous.branchSide || (row % 2 === 0 ? -1 : 1);
         const width = 174 + Math.random() * 22;
-        const type = row > 0 && row % 7 === 5 ? 'fragile' :
-          (row % 8 === 3 ? 'moving' : row % 9 === 7 ? 'spring' : 'normal');
+        const type = row % 8 === 3 ? 'moving' : row % 9 === 7 ? 'spring' : 'normal';
         const branch = this.validateBranchReach({
           x: 0,
-          y: previous.y - (92 + Math.random() * 16),
+          y: previous.y - BRANCH_VERTICAL_GAP * (0.96 + Math.random() * 0.08),
           w: width,
           type,
           moveOffset: Math.random() * Math.PI * 2,
@@ -2938,9 +2958,28 @@
           cracking: 0,
           branchSide: side,
           foliageScale: 0.82 + Math.random() * 0.32
-        }, previous);
+        }, previous, this.branches);
         this.branches.push(branch);
+
+        const addFragileAlternative = row > 0 && !previousRowFragile && Math.random() < SAME_SIDE_CHANCE;
+        if (addFragileAlternative) {
+          const fragileBranch = this.validateBranchReach({
+            x: 0,
+            y: branch.y,
+            w: 160 + Math.random() * 18,
+            type: 'fragile',
+            moveOffset: 0,
+            broken: false,
+            cracking: 0,
+            branchSide: previous.branchSide,
+            sameSideException: true,
+            foliageScale: 0.82 + Math.random() * 0.32
+          }, previous, this.branches);
+          this.branches.push(fragileBranch);
+        }
+
         previous = branch;
+        previousRowFragile = addFragileAlternative;
         row++;
       }
 
@@ -2948,14 +2987,14 @@
       this.nest.x = V_WIDTH / 2;
       const nestBranch = this.validateBranchReach({
         x: V_WIDTH / 2,
-        y: previous.y - 86,
-        w: 310,
+        y: previous.y - BRANCH_VERTICAL_GAP,
+        w: 696,
         type: 'nestBranch',
         broken: false,
         cracking: 0,
         angle: 0,
         foliageScale: 1
-      }, previous);
+      }, previous, this.branches);
       this.nest.y = nestBranch.y - 18;
       this.branches.push(nestBranch);
     },
@@ -3039,15 +3078,9 @@
             p.vy = 0;
             p.onGround = true;
             p.supportBranch = b;
-            this.victoryStarted = true;
-            this.cameraY = b.y - FINAL_CINEMATIC.summitBranchY;
-            audio.sfxVictory();
-            audio.sfxDuck();
-            cineFinal.reset({ x: p.x, y: p.y, branchY: b.y });
-            currentState = STATE.CINE_FINAL;
-            pendingNextState = null;
-            transitionAlpha = 0;
-            return;
+            p.lastSafeX = p.x;
+            p.lastSafeY = b.y;
+            break;
           }
 
           if (b.type === 'spring') {
@@ -3072,6 +3105,7 @@
 
       // Zona de activación que cubre el nido y el peluche, incluso si lo toca en el aire.
       if (Math.abs(p.x - this.nest.x) < 92 && p.y >= this.nest.y - 62 && p.y <= this.nest.y + 34) {
+        this.cameraY = this.nest.y + 18 - FINAL_CINEMATIC.summitBranchY;
         this.victoryStarted = true;
         audio.sfxVictory();
         audio.sfxDuck();
@@ -3083,8 +3117,16 @@
       }
 
       // La cámara sigue a la niña cuando sube (Doodle Jump)
-      const targetCamY = p.y - V_HEIGHT * 0.55;
-      if (targetCamY < this.cameraY) {
+      const summitProgress = Math.max(0, Math.min(1,
+        (560 - p.y) / Math.max(1, 560 - (this.nest.y + 18))
+      ));
+      const crownProgress = Math.max(0, Math.min(1,
+        (summitProgress - SUMMIT_CROWN_START_PROGRESS) / (1 - SUMMIT_CROWN_START_PROGRESS)
+      ));
+      const playerCameraY = p.y - V_HEIGHT * 0.55;
+      const summitCameraY = this.nest.y + 18 - FINAL_CINEMATIC.summitBranchY;
+      const targetCamY = playerCameraY + (summitCameraY - playerCameraY) * crownProgress;
+      if (targetCamY < this.cameraY || crownProgress > 0) {
         // Seguimiento lineal suave, sin rebote ni overshoot.
         this.cameraY += (targetCamY - this.cameraY) * 0.12;
       }
@@ -3117,6 +3159,10 @@
       const summitProgress = Math.max(0, Math.min(1,
         (560 - this.player.y) / Math.max(1, 560 - (this.nest.y + 18))
       ));
+      const crownLinearProgress = Math.max(0, Math.min(1,
+        (summitProgress - SUMMIT_CROWN_START_PROGRESS) / (1 - SUMMIT_CROWN_START_PROGRESS)
+      ));
+      const crownProgress = crownLinearProgress * crownLinearProgress * (3 - 2 * crownLinearProgress);
       ctx.save();
       ctx.translate(0, -this.cameraY);
 
@@ -3149,6 +3195,8 @@
       ctx.globalAlpha = 1.0;
 
       // Tronco colosal del Gran Pino (en el centro)
+      ctx.save();
+      ctx.globalAlpha = 1 - crownProgress;
       const trunkWidth = 190;
       ctx.fillStyle = '#422c1d';
       ctx.fillRect(V_WIDTH / 2 - trunkWidth / 2, -this.targetHeight - 200, trunkWidth, this.targetHeight + 900);
@@ -3170,11 +3218,29 @@
       ctx.moveTo(V_WIDTH / 2 + 48, -this.targetHeight - 120);
       ctx.lineTo(V_WIDTH / 2 + 48, 690);
       ctx.stroke();
+      ctx.restore();
+
+      // La copa prerenderizada comparte escala y coordenadas con la cinemática final.
+      ctx.save();
+      ctx.globalAlpha = crownProgress;
+      ctx.drawImage(cineFinal.assets.summitTree, 0,
+        this.nest.y + 18 - FINAL_CINEMATIC.summitBranchY);
+      ctx.restore();
 
       // Dibujar Ramas del pino
       for (const b of this.branches) {
         if (b.broken) continue;
-        this.drawBranch(ctx, b);
+        if (b.type === 'nestBranch') {
+          ctx.save();
+          ctx.globalAlpha = 1 - crownProgress;
+          this.drawBranch(ctx, b);
+          ctx.restore();
+        } else {
+          ctx.save();
+          ctx.globalAlpha = 1 - crownProgress;
+          this.drawBranch(ctx, b);
+          ctx.restore();
+        }
       }
 
       // Dibujar Nido del águila en la cúspide
@@ -3186,7 +3252,7 @@
       if (blinkVisible) {
         const pAnim = this.player.vy < 0 ? 'jump' : 'fall';
         drawGirl(ctx, this.player.x, this.player.y, {
-          scale: 1.45,
+          scale: 1.45 + crownProgress * 0.37,
           facingRight: this.player.facingRight,
           state: pAnim,
           animTime: stateTime,
@@ -3213,6 +3279,7 @@
 
     drawBranch(ctx, b) {
       ctx.save();
+      const inheritedAlpha = ctx.globalAlpha;
       const side = b.type === 'nestBranch' ? 0 : (b.branchSide || (b.x < V_WIDTH / 2 ? -1 : 1));
       const shake = b.cracking > 0 ? Math.sin(stateTime * 58) * 2.5 : 0;
       const left = b.x - b.w / 2 + shake;
@@ -3244,7 +3311,7 @@
       }
 
       // Follaje decorativo detrás y debajo de la superficie, nunca sobre la hitbox.
-      ctx.globalAlpha = 0.72;
+      ctx.globalAlpha = inheritedAlpha * 0.72;
       ctx.fillStyle = needleColor;
       if (!dry && b.type !== 'nestBranch') {
         for (let i = 0; i < 6; i++) {
@@ -3272,7 +3339,7 @@
           ctx.stroke();
         }
       }
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = inheritedAlpha;
 
       // Plataforma sólida: esta barra, y solo esta barra, coincide con la hitbox.
       ctx.fillStyle = dry ? '#a9855d' : '#68472f';
@@ -3503,20 +3570,22 @@
       }
       const summitSky = makeCanvas(V_WIDTH, V_HEIGHT);
       summitSky.getContext('2d').drawImage(top, 0, 0);
+      const summitTree = makeCanvas(V_WIDTH, V_HEIGHT);
+      const treeCtx = summitTree.getContext('2d');
 
       // Pino de gran tamaño: copa escalonada, tronco afinado y ramas de apoyo.
-      topCtx.fillStyle = '#69452f';
-      topCtx.beginPath();
-      topCtx.moveTo(540, 730); topCtx.lineTo(598, 165); topCtx.quadraticCurveTo(640, 145, 682, 165);
-      topCtx.lineTo(740, 730); topCtx.closePath(); topCtx.fill();
-      topCtx.fillStyle = 'rgba(207, 153, 105, 0.42)';
-      topCtx.beginPath();
-      topCtx.moveTo(588, 700); topCtx.lineTo(622, 180); topCtx.lineTo(644, 175); topCtx.lineTo(632, 710); topCtx.closePath(); topCtx.fill();
-      topCtx.strokeStyle = 'rgba(65, 42, 31, 0.58)';
-      topCtx.lineWidth = 5;
+      treeCtx.fillStyle = '#69452f';
+      treeCtx.beginPath();
+      treeCtx.moveTo(540, 730); treeCtx.lineTo(598, 165); treeCtx.quadraticCurveTo(640, 145, 682, 165);
+      treeCtx.lineTo(740, 730); treeCtx.closePath(); treeCtx.fill();
+      treeCtx.fillStyle = 'rgba(207, 153, 105, 0.42)';
+      treeCtx.beginPath();
+      treeCtx.moveTo(588, 700); treeCtx.lineTo(622, 180); treeCtx.lineTo(644, 175); treeCtx.lineTo(632, 710); treeCtx.closePath(); treeCtx.fill();
+      treeCtx.strokeStyle = 'rgba(65, 42, 31, 0.58)';
+      treeCtx.lineWidth = 5;
       for (let y = 235; y < 700; y += 63) {
-        topCtx.beginPath(); topCtx.moveTo(565 - (y - 235) * 0.07, y);
-        topCtx.quadraticCurveTo(640, y + 24, 714 + (y - 235) * 0.07, y - 4); topCtx.stroke();
+        treeCtx.beginPath(); treeCtx.moveTo(565 - (y - 235) * 0.07, y);
+        treeCtx.quadraticCurveTo(640, y + 24, 714 + (y - 235) * 0.07, y - 4); treeCtx.stroke();
       }
       const pineLayers = [
         { y: 182, w: 120, h: 160, c: '#416c56' }, { y: 270, w: 190, h: 190, c: '#507d5c' },
@@ -3524,48 +3593,49 @@
         { y: 620, w: 440, h: 240, c: '#809c70' }
       ];
       pineLayers.forEach((layer, idx) => {
-        topCtx.fillStyle = layer.c;
-        topCtx.beginPath();
-        topCtx.moveTo(640, layer.y - layer.h);
-        topCtx.lineTo(640 + layer.w, layer.y);
-        topCtx.quadraticCurveTo(640, layer.y - 34, 640 - layer.w, layer.y);
-        topCtx.closePath(); topCtx.fill();
-        topCtx.strokeStyle = idx % 2 ? 'rgba(195, 220, 164, 0.48)' : 'rgba(220, 230, 180, 0.42)';
-        topCtx.lineWidth = 5;
-        topCtx.beginPath(); topCtx.moveTo(640 - layer.w * 0.72, layer.y - 12);
-        topCtx.quadraticCurveTo(640, layer.y + 4, 640 + layer.w * 0.72, layer.y - 12); topCtx.stroke();
+        treeCtx.fillStyle = layer.c;
+        treeCtx.beginPath();
+        treeCtx.moveTo(640, layer.y - layer.h);
+        treeCtx.lineTo(640 + layer.w, layer.y);
+        treeCtx.quadraticCurveTo(640, layer.y - 34, 640 - layer.w, layer.y);
+        treeCtx.closePath(); treeCtx.fill();
+        treeCtx.strokeStyle = idx % 2 ? 'rgba(195, 220, 164, 0.48)' : 'rgba(220, 230, 180, 0.42)';
+        treeCtx.lineWidth = 5;
+        treeCtx.beginPath(); treeCtx.moveTo(640 - layer.w * 0.72, layer.y - 12);
+        treeCtx.quadraticCurveTo(640, layer.y + 4, 640 + layer.w * 0.72, layer.y - 12); treeCtx.stroke();
       });
       // Horquilla y ramas laterales.
-      topCtx.strokeStyle = '#68462f'; topCtx.lineWidth = 23; topCtx.lineCap = 'round';
-      topCtx.beginPath(); topCtx.moveTo(635, 365); topCtx.quadraticCurveTo(560, 330, 455, 340);
-      topCtx.moveTo(645, 365); topCtx.quadraticCurveTo(720, 325, 825, 340); topCtx.stroke();
-      topCtx.strokeStyle = '#c79b6c'; topCtx.lineWidth = 5;
-      topCtx.beginPath(); topCtx.moveTo(540, 345); topCtx.quadraticCurveTo(470, 332, 440, 344);
-      topCtx.moveTo(740, 345); topCtx.quadraticCurveTo(810, 332, 840, 344); topCtx.stroke();
+      treeCtx.strokeStyle = '#68462f'; treeCtx.lineWidth = 23; treeCtx.lineCap = 'round';
+      treeCtx.beginPath(); treeCtx.moveTo(635, 365); treeCtx.quadraticCurveTo(560, 330, 455, 340);
+      treeCtx.moveTo(645, 365); treeCtx.quadraticCurveTo(720, 325, 825, 340); treeCtx.stroke();
+      treeCtx.strokeStyle = '#c79b6c'; treeCtx.lineWidth = 5;
+      treeCtx.beginPath(); treeCtx.moveTo(540, 345); treeCtx.quadraticCurveTo(470, 332, 440, 344);
+      treeCtx.moveTo(740, 345); treeCtx.quadraticCurveTo(810, 332, 840, 344); treeCtx.stroke();
       // Ramitas finas, agujas y pequeñas piñas en las puntas de la copa.
-      topCtx.strokeStyle = 'rgba(203, 222, 174, 0.8)'; topCtx.lineWidth = 3;
+      treeCtx.strokeStyle = 'rgba(203, 222, 174, 0.8)'; treeCtx.lineWidth = 3;
       for (let i = 0; i < 9; i++) {
         const x = 360 + i * 68;
         const y = 475 + (i % 3) * 42;
-        topCtx.beginPath(); topCtx.moveTo(x, y); topCtx.lineTo(x - 20, y - 17); topCtx.moveTo(x, y); topCtx.lineTo(x + 21, y - 16); topCtx.stroke();
+        treeCtx.beginPath(); treeCtx.moveTo(x, y); treeCtx.lineTo(x - 20, y - 17); treeCtx.moveTo(x, y); treeCtx.lineTo(x + 21, y - 16); treeCtx.stroke();
       }
-      topCtx.fillStyle = '#a9784d';
+      treeCtx.fillStyle = '#a9784d';
       for (const [x, y] of [[514, 398], [747, 462], [557, 532], [705, 588]]) {
-        topCtx.beginPath(); topCtx.ellipse(x, y, 6, 11, -0.25, 0, Math.PI * 2); topCtx.fill();
-        topCtx.strokeStyle = '#d4aa72'; topCtx.lineWidth = 1.5;
-        topCtx.beginPath(); topCtx.moveTo(x - 4, y - 2); topCtx.lineTo(x + 4, y - 2); topCtx.moveTo(x - 3, y + 3); topCtx.lineTo(x + 3, y + 3); topCtx.stroke();
+        treeCtx.beginPath(); treeCtx.ellipse(x, y, 6, 11, -0.25, 0, Math.PI * 2); treeCtx.fill();
+        treeCtx.strokeStyle = '#d4aa72'; treeCtx.lineWidth = 1.5;
+        treeCtx.beginPath(); treeCtx.moveTo(x - 4, y - 2); treeCtx.lineTo(x + 4, y - 2); treeCtx.moveTo(x - 3, y + 3); treeCtx.lineTo(x + 3, y + 3); treeCtx.stroke();
       }
 
       // Rama larga de la cima: plataforma visible y continua bajo el recorrido de Anika.
-      topCtx.fillStyle = '#65432e';
-      topCtx.beginPath(); topCtx.moveTo(292, 344); topCtx.lineTo(988, 344); topCtx.lineTo(974, 366);
-      topCtx.quadraticCurveTo(640, 374, 306, 366); topCtx.closePath(); topCtx.fill();
-      topCtx.strokeStyle = '#c89e70'; topCtx.lineWidth = 5;
-      topCtx.beginPath(); topCtx.moveTo(306, 345); topCtx.quadraticCurveTo(640, 351, 974, 345); topCtx.stroke();
-      topCtx.fillStyle = 'rgba(111, 157, 113, 0.65)';
+      treeCtx.fillStyle = '#65432e';
+      treeCtx.beginPath(); treeCtx.moveTo(292, 344); treeCtx.lineTo(988, 344); treeCtx.lineTo(974, 366);
+      treeCtx.quadraticCurveTo(640, 374, 306, 366); treeCtx.closePath(); treeCtx.fill();
+      treeCtx.strokeStyle = '#c89e70'; treeCtx.lineWidth = 5;
+      treeCtx.beginPath(); treeCtx.moveTo(306, 345); treeCtx.quadraticCurveTo(640, 351, 974, 345); treeCtx.stroke();
+      treeCtx.fillStyle = 'rgba(111, 157, 113, 0.65)';
       for (let x = 330; x < 970; x += 42) {
-        topCtx.beginPath(); topCtx.ellipse(x, 378 + (x % 3) * 2, 18, 8, 0, 0, Math.PI * 2); topCtx.fill();
+        treeCtx.beginPath(); treeCtx.ellipse(x, 378 + (x % 3) * 2, 18, 8, 0, 0, Math.PI * 2); treeCtx.fill();
       }
+      topCtx.drawImage(summitTree, 0, 0);
 
       // El cuenco se renderiza por separado para poder retirar el único patito al recogerlo.
       const makeNestCanvas = (withDuck) => {
@@ -3573,7 +3643,7 @@
         level3.drawEagleNest(nestCanvas.getContext('2d'), 120, 48, withDuck);
         return nestCanvas;
       };
-      this.assets = { top, summitSky, nestWithDuck: makeNestCanvas(true), nestEmpty: makeNestCanvas(false) };
+      this.assets = { top, summitSky, summitTree, nestWithDuck: makeNestCanvas(true), nestEmpty: makeNestCanvas(false) };
 
       // Fondo vertical prerenderizado para la bajada, con capas de bosque y suelo al final.
       const descent = makeCanvas(V_WIDTH, 1500);
