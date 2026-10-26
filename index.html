@@ -91,6 +91,16 @@
       border-color: #ffe680;
     }
 
+    .touch-btn-duck {
+      width: 70px;
+      height: 70px;
+      background: rgba(76, 175, 230, 0.42);
+      border-color: #8ce0ff;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
     .touch-btn-jump {
       width: 78px;
       height: 78px;
@@ -156,6 +166,7 @@
         <div class="touch-btn" id="btn-right">▶</div>
       </div>
       <div class="touch-btn-group">
+        <div class="touch-btn touch-btn-duck" id="btn-duck" title="Agacharse (Flecha Abajo / S)">AGACH.</div>
         <div class="touch-btn touch-btn-jump" id="btn-jump">SALTO</div>
       </div>
     </div>
@@ -190,7 +201,21 @@
   const LOG_JUMP_FLIGHT_TIME = (2 * Math.abs(JUMP_FORCE_WOLF)) / GRAVITY;
   const LOG_JUMP_DISTANCE = RUNNER_BASE_SCROLL_SPEED * LOG_JUMP_FLIGHT_TIME;
   const LOG_MIN_GAP = Math.ceil(LOG_JUMP_DISTANCE * 1.5);
-  const LOG_MAX_GAP = Math.ceil(LOG_JUMP_DISTANCE * 2.0);
+  const LOG_MAX_GAP = Math.ceil(LOG_JUMP_DISTANCE * 2.1);
+
+  // Separaciones mínimas ajustables por tipo de obstáculo en Nivel 2
+  const ROCK_MIN_GAP = Math.ceil(LOG_JUMP_DISTANCE * 1.65);
+  const BUSH_MIN_GAP = Math.ceil(LOG_JUMP_DISTANCE * 1.65);
+  const BRANCH_MIN_GAP = Math.ceil(LOG_JUMP_DISTANCE * 1.55);
+  const DOUBLE_LOG_MIN_GAP = Math.ceil(LOG_JUMP_DISTANCE * 1.8);
+  const COMBO_GAP = Math.ceil(LOG_JUMP_DISTANCE * 1.9);
+
+  const GAP_LOG = LOG_MIN_GAP;
+  const GAP_DOUBLE_LOG = DOUBLE_LOG_MIN_GAP;
+  const GAP_ROCK = ROCK_MIN_GAP;
+  const GAP_BUSH = BUSH_MIN_GAP;
+  const GAP_BRANCH = BRANCH_MIN_GAP;
+  const GAP_COMBO = COMBO_GAP;
 
   // Constantes específicas para el Nivel 3 (El Gran Pino): mayor alcance vertical y horizontal
   const JUMP_FORCE_PINE = -14.6;      // Salto vertical más alto
@@ -203,6 +228,33 @@
   const BRANCH_HORIZONTAL_REACH_RATIO = 0.72;
   const SUMMIT_CROWN_START_PROGRESS = 0.80;
   const PINE_BRANCH_INSET = 10;
+
+  // Constantes de pájaros para el Nivel 3 (El Gran Pino)
+  const BIRD_SPAWN_MIN = 2.4;    // segundos mínimos entre apariciones
+  const BIRD_SPAWN_MAX = 5.0;    // segundos máximos entre apariciones
+  const BIRD_SPEED_MIN = 3.6;    // velocidad horizontal mínima
+  const BIRD_SPEED_MAX = 6.2;    // velocidad horizontal máxima
+  const BIRD_WARN_TIME = 0.7;    // aviso previo de 0.7 segundos
+
+  // ==========================================
+  // SISTEMA DE VIDAS COMPARTIDAS ENTRE NIVELES
+  // ==========================================
+  const gameState = {
+    lives: 3,
+    livesAtLevelStart: 3,
+    resetLives(amount = 3) {
+      this.lives = Math.max(1, Math.min(3, amount));
+      this.livesAtLevelStart = this.lives;
+    },
+    startLevel() {
+      // Arrastra las vidas restantes del nivel anterior y guarda para reintentos
+      this.livesAtLevelStart = Math.max(1, Math.min(3, this.lives));
+    },
+    retryLevel() {
+      // Al reintentar tras perder, se recuperan las vidas de inicio del nivel (mínimo 1)
+      this.lives = Math.max(1, this.livesAtLevelStart);
+    }
+  };
 
   // Constantes de invulnerabilidad y parpadeo al reaparecer (común a todos los niveles: exactamente 2 parpadeos en ~1 segundo)
   const BLINK_COUNT = 2;          // Exactamente 2 parpadeos completos (visible -> invisible -> visible -> invisible -> visible)
@@ -670,6 +722,7 @@
     right: false,
     jump: false,
     jumpPressed: false,
+    duck: false,
     esc: false
   };
 
@@ -696,6 +749,7 @@
 
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
     if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.duck = true;
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
       if (!keys.jump) keys.jumpPressed = true;
       keys.jump = true;
@@ -706,12 +760,14 @@
   window.addEventListener('keyup', (e) => {
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
     if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.duck = false;
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') keys.jump = false;
     if (e.code === 'Escape') keys.esc = false;
   });
 
   // Botones táctiles virtuales
   const setupTouchBtn = (elem, pressAction, releaseAction) => {
+    if (!elem) return;
     const press = (e) => {
       e.preventDefault();
       audio.init();
@@ -732,6 +788,7 @@
 
   setupTouchBtn(document.getElementById('btn-left'), () => { keys.left = true; }, () => { keys.left = false; });
   setupTouchBtn(document.getElementById('btn-right'), () => { keys.right = true; }, () => { keys.right = false; });
+  setupTouchBtn(document.getElementById('btn-duck'), () => { keys.duck = true; }, () => { keys.duck = false; });
   setupTouchBtn(document.getElementById('btn-jump'), () => {
     if (!keys.jump) keys.jumpPressed = true;
     keys.jump = true;
@@ -897,13 +954,121 @@
   function drawGirl(ctx, x, y, options = {}) {
     const scale = options.scale || 1;
     const facing = options.facingRight !== undefined ? (options.facingRight ? 1 : -1) : 1;
-    const animState = options.state || 'idle'; // idle, run, jump, fall, cry
+    const animState = options.state || 'idle'; // idle, run, jump, fall, cry, duck
     const animTime = options.animTime || 0;
     const hasDuck = options.hasDuck || false;
 
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale * facing, scale);
+
+    if (animState === 'duck') {
+      // --- ANIMACIÓN DE AGACHARSE: Se encoge, piernas flexionadas y cabeza baja ---
+      // Sombra en el suelo más ancha y baja
+      ctx.save();
+      ctx.fillStyle = 'rgba(20, 25, 30, 0.28)';
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 20, 5.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Botitas marrones pegadas al suelo / piernas flexionadas
+      ctx.fillStyle = '#6d4834';
+      ctx.beginPath();
+      ctx.roundRect(-9, -6.5, 8, 6.5, 3);
+      ctx.roundRect(1, -6.5, 8, 6.5, 3);
+      ctx.fill();
+
+      // Vestido verde/azul pastel recogido y bajo
+      ctx.fillStyle = '#4c8c82';
+      ctx.beginPath();
+      ctx.moveTo(-13, -6.5);
+      ctx.lineTo(13, -6.5);
+      ctx.lineTo(8, -16);
+      ctx.lineTo(-8, -16);
+      ctx.closePath();
+      ctx.fill();
+
+      // Capa roja baja pegada a la espalda
+      ctx.save();
+      ctx.translate(-5, -16);
+      ctx.rotate(-0.06);
+      ctx.fillStyle = '#dc5847';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-14, 5, -11, 13);
+      ctx.quadraticCurveTo(-2, 12, 4, 7);
+      ctx.lineTo(4, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#fff8e8';
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+      ctx.restore();
+
+      // Cabeza encogida y baja (headY = -18, rostro hacia adelante)
+      const headY = -18;
+
+      // Cabello detrás
+      ctx.fillStyle = '#5a3825';
+      ctx.beginPath();
+      ctx.arc(2, headY, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Coleta
+      ctx.beginPath();
+      ctx.arc(-8, headY + 2, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rostro
+      ctx.fillStyle = '#fedec4';
+      ctx.beginPath();
+      ctx.arc(3, headY + 1, 9.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Flequillo
+      ctx.fillStyle = '#5a3825';
+      ctx.beginPath();
+      ctx.arc(3, headY - 3, 9.5, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+
+      // Mejillas
+      ctx.fillStyle = 'rgba(255, 130, 130, 0.55)';
+      ctx.beginPath();
+      ctx.arc(7, headY + 3, 2.6, 0, Math.PI * 2);
+      ctx.arc(0, headY + 3, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ojos decididos mirando al frente
+      ctx.fillStyle = '#221e25';
+      ctx.beginPath();
+      ctx.arc(7, headY + 1, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(7.6, headY + 0.3, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Boquita concentrada
+      ctx.strokeStyle = '#8a4b44';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(6, headY + 4.5, 1.5, 0, Math.PI);
+      ctx.stroke();
+
+      // Lazo rojo en la cabeza
+      ctx.fillStyle = '#dc5847';
+      ctx.beginPath();
+      ctx.arc(0, headY - 6.5, 3.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (hasDuck) {
+        drawDuckPlush(ctx, 6, -12, 0.75);
+      }
+
+      ctx.restore();
+      return;
+    }
 
     // Rebote sutil en idle y run
     let bobY = 0;
@@ -1221,18 +1386,18 @@
   }
 
   // --- Dibujar el Lobo Feroz (Figura articulada sólida y estilizada) ---
-  function drawWolf(ctx, x, y, scale = 1, runTime = 0, mouthOpen = false, isJumping = false) {
+  function drawWolf(ctx, x, y, scale = 1, runTime = 0, mouthOpen = false, isJumping = false, isDucking = false) {
     ctx.save();
     ctx.translate(x, y);
     ctx.scale(scale, scale);
 
-    // Oscilación vertical suave del cuerpo durante la carrera (en salto se estabiliza)
-    const bodyBob = isJumping ? -6 : Math.abs(Math.sin(runTime * 14)) * 4;
+    // Oscilación vertical suave del cuerpo durante la carrera (en salto se estabiliza, al agacharse baja pegado al suelo)
+    const bodyBob = isDucking ? -13 : (isJumping ? -6 : Math.abs(Math.sin(runTime * 14)) * 4);
 
     // Sombra del lobo en el suelo
     ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
     ctx.beginPath();
-    ctx.ellipse(0, 4, 38, 8, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 4, isDucking ? 44 : 38, isDucking ? 6 : 8, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Puntos de pivote articulares FIJOS al cuerpo del lobo
@@ -1243,7 +1408,13 @@
 
     // Ángulos de las patas
     let rearAngleFondo, frontAngleFondo, rearAngleFrente, frontAngleFrente;
-    if (isJumping) {
+    if (isDucking) {
+      // Pose baja estirada para deslizarse bajo las ramas
+      frontAngleFrente = 0.55;
+      frontAngleFondo = 0.45;
+      rearAngleFrente = -0.65;
+      rearAngleFondo = -0.55;
+    } else if (isJumping) {
       // Pose de salto estilizada: patas delanteras extendidas hacia adelante, traseras hacia atrás
       frontAngleFrente = 0.45;
       frontAngleFondo = 0.35;
@@ -1284,7 +1455,7 @@
     renderLeg(shoulderX - 3, shoulderY, frontAngleFondo, '#2a2c33', '#1e2026');
 
     // 2. Cola esponjosa (anclada fijamente a la parte trasera del torso)
-    const tailTailWiggle = isJumping ? -0.2 : Math.sin(runTime * 14) * 0.2;
+    const tailTailWiggle = isJumping ? -0.2 : (isDucking ? -0.1 : Math.sin(runTime * 14) * 0.2);
     ctx.fillStyle = '#3a3d47';
     ctx.beginPath();
     ctx.moveTo(hipX - 10, hipY - 2);
@@ -1314,30 +1485,42 @@
     renderLeg(hipX, hipY, rearAngleFrente, '#4d525f', '#363942');
     renderLeg(shoulderX, shoulderY, frontAngleFrente, '#4d525f', '#363942');
 
-    // 5. Cabeza del lobo (anclada fijamente al frente del torso)
-    const headX = 26;
-    const headY = -30 - bodyBob;
+    // 5. Cabeza del lobo (anclada fijamente al frente del torso, baja si se agacha)
+    const headX = isDucking ? 29 : 26;
+    const headY = isDucking ? (-14 - bodyBob) : (-30 - bodyBob);
 
     ctx.fillStyle = '#444854';
     ctx.beginPath();
     ctx.arc(headX, headY, 15, 0, Math.PI * 2);
     ctx.fill();
 
-    // Orejas puntiagudas alertas
+    // Orejas: puntiagudas alertas o gachas hacia atrás si pasa bajo la rama
     ctx.fillStyle = '#2c2f38';
     ctx.beginPath();
-    ctx.moveTo(headX - 6, headY - 12);
-    ctx.lineTo(headX - 2, headY - 26);
-    ctx.lineTo(headX + 6, headY - 12);
+    if (isDucking) {
+      ctx.moveTo(headX - 6, headY - 4);
+      ctx.lineTo(headX - 22, headY - 8);
+      ctx.lineTo(headX - 4, headY - 12);
+    } else {
+      ctx.moveTo(headX - 6, headY - 12);
+      ctx.lineTo(headX - 2, headY - 26);
+      ctx.lineTo(headX + 6, headY - 12);
+    }
     ctx.closePath();
     ctx.fill();
 
     // Interior de la oreja
     ctx.fillStyle = '#5c4146';
     ctx.beginPath();
-    ctx.moveTo(headX - 4, headY - 13);
-    ctx.lineTo(headX - 2, headY - 22);
-    ctx.lineTo(headX + 4, headY - 13);
+    if (isDucking) {
+      ctx.moveTo(headX - 5, headY - 5);
+      ctx.lineTo(headX - 18, headY - 8);
+      ctx.lineTo(headX - 4, headY - 10);
+    } else {
+      ctx.moveTo(headX - 4, headY - 13);
+      ctx.lineTo(headX - 2, headY - 22);
+      ctx.lineTo(headX + 4, headY - 13);
+    }
     ctx.closePath();
     ctx.fill();
 
@@ -1674,6 +1857,7 @@
       isPaused = false;
       pauseToggleBtn.textContent = '⏸';
       audio.resume();
+      gameState.resetLives(3);
       switchState(STATE.MENU);
       ctx.restore();
       ctx.restore();
@@ -2044,7 +2228,8 @@
   // 8. NIVEL 1: EL LAGO DE LAS ROCAS
   // ==========================================
   const level1 = {
-    lives: 3,
+    get lives() { return gameState.lives; },
+    set lives(v) { gameState.lives = v; },
     gameOver: false,
     player: {
       x: 80,
@@ -2066,7 +2251,6 @@
     stones: [],
 
     init() {
-      this.lives = 3;
       this.gameOver = false;
       this.player.x = 80;
       this.player.y = 440;
@@ -2387,11 +2571,11 @@
       // Indicadores en pantalla (HUD en espacio de pantalla con zonas organizadas)
       this.drawHUD(ctx);
 
-      // Modal de Game Over al perder las 3 vidas
+      // Modal de Game Over al perder las vidas
       if (this.gameOver) {
         drawGameOverModal(ctx,
-          () => { this.gameOver = false; this.init(); },
-          () => { this.gameOver = false; isPaused = false; switchState(STATE.MENU); }
+          () => { this.gameOver = false; gameState.retryLevel(); this.init(); },
+          () => { this.gameOver = false; isPaused = false; gameState.resetLives(3); switchState(STATE.MENU); }
         );
       }
     },
@@ -2429,23 +2613,165 @@
       ctx.fillText('🌲', barX + barW + 16, barY + 18);
       ctx.restore();
 
-      // 3. Corazones: 3 vidas, centrados justo debajo de la barra de progreso
-      drawHearts(ctx, this.lives, 3, V_WIDTH / 2, 54);
+      // 3. Corazones: vidas actuales (máx 3), centrados justo debajo de la barra de progreso
+      drawHearts(ctx, gameState.lives, 3, V_WIDTH / 2, 54);
     }
   };
 
   // ==========================================
   // 9. NIVEL 2: EL LOBO FEROZ (Runner Automático)
   // ==========================================
+
+  // Funciones de cálculo, validación y generación de obstáculos para el Nivel 2
+  function getObstacleMinGap(typeA, typeB) {
+    const isDuckA = (typeA === 'hanging_branch');
+    const isDuckB = (typeB === 'hanging_branch');
+    // Salto seguido de agacharse o viceversa requiere COMBO_GAP para tiempo seguro de reacción y aterrizaje
+    if (isDuckA !== isDuckB) {
+      return COMBO_GAP;
+    }
+    // Si ambos son agacharse bajo ramas
+    if (isDuckA && isDuckB) {
+      return BRANCH_MIN_GAP;
+    }
+    // Si ambos son de salto sobre suelo
+    if (typeA === 'double_log') return DOUBLE_LOG_MIN_GAP;
+    if (typeA === 'rock') return ROCK_MIN_GAP;
+    if (typeA === 'bush') return BUSH_MIN_GAP;
+    return LOG_MIN_GAP;
+  }
+
+  function validateObstacleSequence(sequence, targetDistance) {
+    if (!sequence || sequence.length === 0) return false;
+    for (let i = 0; i < sequence.length; i++) {
+      const obs = sequence[i];
+      const prog = obs.dist / targetDistance;
+
+      // 1. Primer tercio (prog < 0.33): solo troncos simples y ramas bajas colgantes
+      if (prog < 0.33) {
+        if (obs.type !== 'log' && obs.type !== 'hanging_branch') {
+          obs.type = 'log';
+          obs.w = 58;
+          obs.h = 34;
+          obs.clearance = 0;
+        }
+      }
+
+      // 2. Separación segura garantizada con el siguiente obstáculo
+      if (i < sequence.length - 1) {
+        const next = sequence[i + 1];
+        const minRequiredGap = getObstacleMinGap(obs.type, next.type);
+        if (next.dist - obs.dist < minRequiredGap) {
+          next.dist = obs.dist + minRequiredGap;
+        }
+      }
+    }
+    return true;
+  }
+
+  function generateLevel2Sequence(targetDistance) {
+    const sequence = [];
+    let curDist = 580; // Margen de carrera inicial tras el mensaje de ayuda
+    const endDist = targetDistance - 680; // Margen final antes del Gran Pino
+    let lastType = null;
+
+    while (curDist < endDist) {
+      const prog = curDist / targetDistance;
+      let type = 'log';
+
+      if (prog < 0.33) {
+        // --- 1er TERCIO: solo troncos simples y alguna rama baja para aprender la mecánica ---
+        if (lastType === 'hanging_branch') {
+          type = 'log';
+        } else {
+          type = (Math.random() < 0.32) ? 'hanging_branch' : 'log';
+        }
+      } else if (prog < 0.66) {
+        // --- 2do TERCIO: se agregan piedras grandes, arbustos y el tronco doble ocasional ---
+        const r = Math.random();
+        if (lastType === 'hanging_branch') {
+          if (r < 0.38) type = 'log';
+          else if (r < 0.68) type = 'rock';
+          else if (r < 0.88) type = 'bush';
+          else type = 'double_log';
+        } else {
+          if (r < 0.28) type = 'hanging_branch';
+          else if (r < 0.52) type = 'rock';
+          else if (r < 0.74) type = 'bush';
+          else if (r < 0.88) type = 'log';
+          else type = 'double_log';
+        }
+      } else {
+        // --- 3er TERCIO: combinaciones salto/agacharse, variedad y ritmo ágil ---
+        const r = Math.random();
+        if (lastType === 'hanging_branch') {
+          // Tras rama, forzar o priorizar salto para formar combinaciones
+          if (r < 0.38) type = 'rock';
+          else if (r < 0.68) type = 'bush';
+          else if (r < 0.86) type = 'double_log';
+          else type = 'log';
+        } else {
+          // 44% de chance de agacharse para alternar con saltos
+          if (r < 0.44) type = 'hanging_branch';
+          else if (r < 0.65) type = 'rock';
+          else if (r < 0.84) type = 'bush';
+          else if (r < 0.92) type = 'double_log';
+          else type = 'log';
+        }
+      }
+
+      let w = 58;
+      let h = 34;
+      let clearance = 0;
+
+      if (type === 'hanging_branch') {
+        w = 74;
+        h = 175;
+        clearance = 38;
+      } else if (type === 'rock') {
+        w = 78;
+        h = 46;
+      } else if (type === 'bush') {
+        w = 94;
+        h = 42;
+      } else if (type === 'double_log') {
+        w = 90;
+        h = 34;
+      } else {
+        w = 58;
+        h = 34;
+      }
+
+      sequence.push({
+        dist: Math.round(curDist),
+        type,
+        w,
+        h,
+        clearance
+      });
+
+      const minGap = lastType ? getObstacleMinGap(lastType, type) : LOG_MIN_GAP;
+      // Ritmo algo más rápido en el último tercio (menor variabilidad sobre el mínimo seguro)
+      const extraRand = (prog >= 0.66) ? (Math.random() * 26) : (Math.random() * 50);
+      curDist += minGap + extraRand;
+      lastType = type;
+    }
+
+    validateObstacleSequence(sequence, targetDistance);
+    return sequence;
+  }
+
   const level2 = {
     distance: 0,
-    targetDistance: 7600,  // Nivel ampliado: más recorrido para acumular tropiezos y permitir que el lobo alcance a Anika.
+    targetDistance: 7600,  // Nivel ampliado: longitud actual con recorrido para superar al lobo.
     scrollSpeed: 5.6,
     baseScrollSpeed: RUNNER_BASE_SCROLL_SPEED,
-    lives: 3,
+    get lives() { return gameState.lives; },
+    set lives(v) { gameState.lives = v; },
     gameOver: false,
     invulTimer: 0,   // segundos de invulnerabilidad tras ser atrapada
     biteActive: false,
+    tutorialTimer: 4.0, // Mensaje inicial en marco del HUD que dura exactamente 4 segundos
 
     // Jugadora
     player: {
@@ -2453,6 +2779,8 @@
       y: 530,
       vy: 0,
       grounded: true,
+      isDucking: false,
+      duckProgress: 0,
       stumbleTimer: 0
     },
 
@@ -2461,36 +2789,38 @@
       distanceBehind: 300,
       growlCooldown: 0,
       y: 530,          // posición vertical actual del lobo
-      vy: 0,           // velocidad vertical (para saltar troncos)
-      jumpCooldown: 0  // evitar saltar repetidamente el mismo tronco
+      vy: 0,           // velocidad vertical (para saltar obstáculos bajos)
+      jumpCooldown: 0, // evitar saltar repetidamente
+      isDucking: false // agacharse para pasar bajo ramas
     },
 
-    // Obstáculos (Troncos caídos)
+    plannedSequence: [],
+    nextSpawnIndex: 0,
     obstacles: [],
-    spawnTimer: 0,
-    nextLogWidth: 0,
-    spawnPhase: 0,   // controla la variación del ritmo de aparición
 
     init() {
       this.distance = 0;
       this.scrollSpeed = this.baseScrollSpeed;
-      this.lives = 3;
       this.gameOver = false;
       this.invulTimer = 0;
       this.biteActive = false;
+      this.tutorialTimer = 4.0;
+      this.player.x = 360;
       this.player.y = 530;
       this.player.vy = 0;
       this.player.grounded = true;
+      this.player.isDucking = false;
+      this.player.duckProgress = 0;
       this.player.stumbleTimer = 0;
       this.wolf.distanceBehind = 300;
       this.wolf.growlCooldown = 0;
       this.wolf.y = 530;
       this.wolf.vy = 0;
       this.wolf.jumpCooldown = 0;
+      this.wolf.isDucking = false;
+      this.plannedSequence = generateLevel2Sequence(this.targetDistance);
+      this.nextSpawnIndex = 0;
       this.obstacles = [];
-      this.spawnTimer = 80 * this.baseScrollSpeed;
-      this.nextLogWidth = 54 + Math.random() * 22;
-      this.spawnPhase = 0;
     },
 
     update() {
@@ -2500,35 +2830,46 @@
       if (this.gameOver) return;
 
       this.distance += this.scrollSpeed;
-      this.spawnPhase++;
 
-      // --- Generación rítmica sin pares pegados; el claro real nunca es menor a 1.5 saltos ---
-      this.spawnTimer -= this.scrollSpeed;
-      if (this.spawnTimer <= 0 && this.distance < this.targetDistance - 600) {
-        const logH = 34 + Math.random() * 12;
-        const logW = this.nextLogWidth || (54 + Math.random() * 22);
-        const nextWidth = 54 + Math.random() * 22;
-
-        this.obstacles.push({
-          x: V_WIDTH + 80,
-          y: 530,
-          w: logW,
-          h: logH,
-          passed: false,
-          wolfPassed: false
-        });
-
-        // El claro entre bordes se varía dentro del intervalo calculado, con respiro extra ocasional.
-        const section = Math.floor(this.distance / 700) % 3;
-        const gapFloor = section === 2 ? LOG_MIN_GAP + (LOG_MAX_GAP - LOG_MIN_GAP) * 0.35 : LOG_MIN_GAP;
-        const gapCeiling = section === 1 ? LOG_MIN_GAP + (LOG_MAX_GAP - LOG_MIN_GAP) * 0.72 : LOG_MAX_GAP;
-        const clearGap = gapFloor + Math.random() * (gapCeiling - gapFloor);
-        this.spawnTimer = logW / 2 + clearGap + nextWidth / 2;
-        this.nextLogWidth = nextWidth;
+      // Temporizador del mensaje de ayuda
+      if (this.tutorialTimer > 0) {
+        this.tutorialTimer -= 1 / 60;
       }
 
-      // --- Salto de la niña (JUMP_FORCE_WOLF ajustado +13% para superar holgadamente los troncos) ---
-      if (keys.jumpPressed && p.grounded) {
+      // Generar obstáculos a partir de la secuencia validada y anticipada
+      while (this.nextSpawnIndex < this.plannedSequence.length) {
+        const nextObs = this.plannedSequence[this.nextSpawnIndex];
+        // Aparece en el borde derecho (V_WIDTH + 80), con ~1000px de anticipación antes de Anika
+        const spawnTrigger = nextObs.dist - (V_WIDTH + 80 - p.x);
+        if (this.distance >= spawnTrigger) {
+          this.obstacles.push({
+            type: nextObs.type,
+            x: V_WIDTH + 80,
+            y: 530,
+            w: nextObs.w,
+            h: nextObs.h,
+            clearance: nextObs.clearance,
+            passed: false,
+            wolfPassed: false
+          });
+          this.nextSpawnIndex++;
+        } else {
+          break;
+        }
+      }
+
+      // --- Acción de Agacharse: Flecha Abajo o tecla S o botón táctil ---
+      const wantsToDuck = keys.duck && p.grounded && p.stumbleTimer <= 0;
+      if (wantsToDuck) {
+        p.duckProgress = Math.min(1, p.duckProgress + 0.34);
+      } else {
+        // Transición corta y suave al soltar la tecla
+        p.duckProgress = Math.max(0, p.duckProgress - 0.20);
+      }
+      p.isDucking = p.duckProgress > 0.35;
+
+      // --- Salto de la niña: solo si está en suelo y NO está agachada ---
+      if (keys.jumpPressed && p.grounded && p.duckProgress < 0.15) {
         p.vy = JUMP_FORCE_WOLF;
         p.grounded = false;
         keys.jumpPressed = false;
@@ -2538,7 +2879,7 @@
         p.vy += JUMP_HOLD_BOOST_WOLF;
       }
 
-      // Gravedad de la niña
+      // Gravedad
       p.vy += GRAVITY;
       p.y += p.vy;
       if (p.y >= 530) {
@@ -2547,7 +2888,7 @@
         p.grounded = true;
       }
 
-      // --- Temporizador de invulnerabilidad ---
+      // Temporizador de invulnerabilidad
       if (this.invulTimer > 0) {
         this.invulTimer -= 1 / 60;
         if (this.invulTimer <= 0) {
@@ -2556,7 +2897,7 @@
         }
       }
 
-      // --- Tropieza con tronco: el lobo se acerca ---
+      // Tropiezo: pérdida de velocidad y el lobo se aproxima
       if (p.stumbleTimer > 0) {
         p.stumbleTimer--;
         this.scrollSpeed = 3.2;
@@ -2566,68 +2907,105 @@
         w.distanceBehind = Math.min(300, w.distanceBehind + 0.3);
       }
 
-      // --- Actualizar obstáculos y colisión niña ---
+      // Hitbox de Anika: al agacharse la altura se reduce drásticamente (51.5% de la altura normal)
+      const normalHeight = 68;
+      const duckedHeight = 35; // ~51.5% de 68px
+      const currentHeight = normalHeight - (normalHeight - duckedHeight) * p.duckProgress;
+      const girlLeft = p.x - 14;
+      const girlRight = p.x + 14;
+      const girlBottom = p.y;
+      const girlTop = p.y - currentHeight;
+
+      // Posición del lobo
+      const wolfScreenX = p.x - w.distanceBehind;
+      let wolfUnderBranch = false;
+
+      // --- Actualizar obstáculos, colisiones y reacción del lobo ---
       for (let i = this.obstacles.length - 1; i >= 0; i--) {
         const obs = this.obstacles[i];
         obs.x -= this.scrollSpeed;
 
-        // Colisión de la niña con el tronco
+        // 1. Colisión con la niña (pierde velocidad y el lobo se acerca, no resta vida)
         if (!obs.passed) {
-          const girlLeft = p.x - 14;
-          const girlRight = p.x + 14;
-          const girlBottom = p.y;
-          const girlTop = p.y - 52;
-          const obsLeft = obs.x - obs.w / 2;
-          const obsRight = obs.x + obs.w / 2;
-          const obsTop = obs.y - obs.h;
+          let hit = false;
 
-          if (girlRight > obsLeft && girlLeft < obsRight && girlBottom > obsTop) {
+          if (obs.type === 'hanging_branch') {
+            // Rama colgante sujeta a estructura alta con despeje inferior de 38px (y = 530 - 38 = 492)
+            // Agachada en el suelo: girlTop = 530 - 35 = 495 > 492 -> pasa limpia bajo la rama
+            // De pie o saltando: girlTop < 492 -> choca con la rama o la copa alta
+            const branchUnder = 530 - obs.clearance;
+            if (girlRight > (obs.x - obs.w * 0.44) && girlLeft < (obs.x + obs.w * 0.44)) {
+              if (girlTop < branchUnder) {
+                hit = true;
+              }
+            }
+          } else {
+            // Obstáculos terrestres apoyados exactamente en la línea del suelo
+            const obsLeft = obs.x - obs.w * 0.42;
+            const obsRight = obs.x + obs.w * 0.42;
+            const obsTop = 530 - obs.h;
+            if (girlRight > obsLeft && girlLeft < obsRight && girlBottom > obsTop + 2) {
+              hit = true;
+            }
+          }
+
+          if (hit) {
             obs.passed = true;
             p.stumbleTimer = 45;
             audio.sfxGrowl();
-            for (let k = 0; k < 10; k++) {
+            const partCol = (obs.type === 'rock') ? '#7b8796' :
+                            (obs.type === 'bush') ? '#3e7845' :
+                            (obs.type === 'hanging_branch') ? '#4f8c5c' : '#8b5a36';
+            for (let k = 0; k < 12; k++) {
               particles.add({
                 x: obs.x,
-                y: obs.y - obs.h / 2,
+                y: obs.type === 'hanging_branch' ? 490 : (530 - obs.h / 2),
                 vx: Math.random() * 5 - 2,
                 vy: -Math.random() * 4 - 2,
                 size: 4,
-                color: '#8b5a36',
+                color: partCol,
                 life: 30
               });
             }
           }
         }
 
-        // --- Lobo salta el tronco (+20% más alto, pasa claramente sin rozar) ---
-        // wolfX en coordenadas de pantalla: p.x - w.distanceBehind
-        if (!obs.wolfPassed && w.vy === 0 && w.jumpCooldown <= 0) {
-          // Posición del tronco relativa al lobo (en pantalla)
-          const troncoRelX = obs.x - (p.x - w.distanceBehind);
-          if (troncoRelX > 20 && troncoRelX < 90) {
-            // El tronco está justo adelante del lobo → saltar con gran arco
-            w.vy = -9.2;
-            w.jumpCooldown = 40;
-            // El lobo pierde algo de velocidad al saltar (se separa un poco)
-            if (w.distanceBehind < 300) {
-              w.distanceBehind = Math.min(300, w.distanceBehind + 18);
+        // 2. Reacción del lobo a los obstáculos
+        const obsRelWolf = obs.x - wolfScreenX;
+
+        if (obs.type === 'hanging_branch') {
+          // Pasa por debajo de la rama colgante sin atravesarla
+          if (obsRelWolf > -50 && obsRelWolf < 70) {
+            wolfUnderBranch = true;
+          }
+          if (obsRelWolf < -50) {
+            obs.wolfPassed = true;
+          }
+        } else {
+          // Salta los obstáculos terrestres bajos
+          if (!obs.wolfPassed) {
+            if (w.vy === 0 && w.jumpCooldown <= 0 && obsRelWolf > 25 && obsRelWolf < 95) {
+              const jumpForce = (obs.type === 'double_log' || obs.type === 'rock' || obs.type === 'bush') ? -10.8 : -9.4;
+              w.vy = jumpForce;
+              w.jumpCooldown = 38;
+              if (w.distanceBehind < 300) {
+                w.distanceBehind = Math.min(300, w.distanceBehind + 15);
+              }
+            }
+            if (obsRelWolf < -30) {
+              obs.wolfPassed = true;
             }
           }
         }
-        if (obs.wolfPassed === false) {
-          // marcar el tronco como superado por el lobo cuando ya pasó
-          const troncoRelX = obs.x - (p.x - w.distanceBehind);
-          if (troncoRelX < -20) {
-            obs.wolfPassed = true;
-          }
-        }
 
-        if (obs.x < -150) {
+        if (obs.x < -180) {
           this.obstacles.splice(i, 1);
         }
       }
 
-      // --- Física del lobo (salto sobre troncos) ---
+      w.isDucking = wolfUnderBranch;
+
+      // Física del salto del lobo
       if (w.vy !== 0) {
         w.vy += GRAVITY;
         w.y += w.vy;
@@ -2638,14 +3016,14 @@
       }
       if (w.jumpCooldown > 0) w.jumpCooldown--;
 
-      // --- Gruñido periódico si el lobo está cerca ---
+      // Gruñido periódico del lobo si está cerca
       w.growlCooldown--;
       if (w.distanceBehind < 160 && w.growlCooldown <= 0) {
         audio.sfxGrowl();
         w.growlCooldown = 110;
       }
 
-      // --- Si el lobo atrapa a la niña (y no está invulnerable) ---
+      // Si el lobo alcanza a la niña: mordisco que quita exactamente 1 vida
       if (w.distanceBehind <= 95 && this.invulTimer <= 0 && !this.biteActive) {
         audio.sfxGrowl();
         this.biteActive = true;
@@ -2654,10 +3032,9 @@
           this.gameOver = true;
           return;
         }
-        // Reaparecer: empujar al lobo hacia atrás y dar invulnerabilidad
         w.distanceBehind = 280;
         this.invulTimer = BLINK_DURATION;
-        p.stumbleTimer = 30;   // Animación de tropiezo breve
+        p.stumbleTimer = 35;
         return;
       }
 
@@ -2669,11 +3046,11 @@
     },
 
     draw(ctx) {
-      // Fondo de DÍA (igual que el nivel 1): cielo, montañas verdes, árboles de bosque
+      // Fondo de DÍA: cielo, montañas verdes, árboles de bosque
       drawSky(ctx, 'day');
       drawParallaxMountains(ctx, this.distance * 0.08, '#94b8ac', '#779e91');
 
-      // Árboles del bosque con parallax en mosaico (bases en y=530, paleta del nivel 1)
+      // Árboles del bosque con parallax en mosaico
       for (let i = 0; i < 14; i++) {
         const tx = ((i * 185 - this.distance * 0.38) % (V_WIDTH + 370) + V_WIDTH + 370) % (V_WIDTH + 370) - 185;
         const sc = 0.78 + (i % 3) * 0.08;
@@ -2681,20 +3058,19 @@
         drawStoryTree(ctx, tx, 530, sc, fc, '#533b2a');
       }
 
-      // El Gran Pino visible desde el inicio en el horizonte derecho,
-      // acercándose y aumentando su escala con el progreso del nivel hasta sus pies
+      // El Gran Pino visible en el horizonte que se va acercando
       const prog = Math.min(1, Math.max(0, this.distance / this.targetDistance));
       const pineX = (V_WIDTH - 140) - prog * (V_WIDTH - 140 - 540);
       const pineScale = 1.35 + prog * 1.85;
       drawPineTree(ctx, pineX, 530, pineScale, '#1e4832');
 
-      // Suelo con pasto verde (igual al nivel 1) y tierra marrón debajo
+      // Suelo verde y tierra
       ctx.fillStyle = '#65a854';
       ctx.fillRect(0, 530, V_WIDTH, 16);
       ctx.fillStyle = '#7a553c';
       ctx.fillRect(0, 546, V_WIDTH, V_HEIGHT - 546);
 
-      // Líneas de velocidad en el suelo (tierra)
+      // Líneas de velocidad en la tierra
       ctx.strokeStyle = '#8f6040';
       ctx.lineWidth = 2.5;
       for (let i = 0; i < 8; i++) {
@@ -2705,47 +3081,242 @@
         ctx.stroke();
       }
 
-      // Dibujar Obstáculos (Troncos apoyados sobre el suelo: base en y=530, se dibujan hacia arriba)
+      // Dibujar Obstáculos ilustrados (apoyados en el suelo o sujetos a estructura alta)
       for (const obs of this.obstacles) {
         ctx.save();
-        // Los troncos tienen base en y=530 → translateY al suelo
         ctx.translate(obs.x, 530);
 
-        // Cuerpo del tronco (de y=0 hacia arriba -obs.h)
-        ctx.fillStyle = '#5c3a21';
-        ctx.beginPath();
-        ctx.roundRect(-obs.w / 2, -obs.h, obs.w, obs.h, [8, 8, 3, 3]);
-        ctx.fill();
+        if (obs.type === 'hanging_branch') {
+          // --- RAMA BAJA COLGANTE ---
+          // Sujeta a dos postes verticales de madera rústicos (nunca flotando)
+          // Poste izquierdo
+          ctx.fillStyle = '#483120';
+          ctx.beginPath();
+          ctx.roundRect(-obs.w / 2 - 16, -230, 24, 230, [6, 6, 2, 2]);
+          ctx.fill();
+          ctx.strokeStyle = '#2f1e13';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(-obs.w / 2 - 10, -200); ctx.lineTo(-obs.w / 2 - 2, -192);
+          ctx.moveTo(-obs.w / 2 - 12, -140); ctx.lineTo(-obs.w / 2 - 4, -132);
+          ctx.moveTo(-obs.w / 2 - 10, -70); ctx.lineTo(-obs.w / 2 - 2, -62);
+          ctx.stroke();
 
-        // Anillos de corte en el lateral izquierdo
-        ctx.fillStyle = '#d49b6a';
-        ctx.beginPath();
-        ctx.ellipse(-obs.w / 2 + 5, -obs.h / 2, 5, obs.h / 2 - 4, 0, 0, Math.PI * 2);
-        ctx.fill();
+          // Poste derecho
+          ctx.fillStyle = '#483120';
+          ctx.beginPath();
+          ctx.roundRect(obs.w / 2 - 8, -230, 24, 230, [6, 6, 2, 2]);
+          ctx.fill();
+          ctx.strokeStyle = '#2f1e13';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(obs.w / 2 - 2, -180); ctx.lineTo(obs.w / 2 + 6, -172);
+          ctx.moveTo(obs.w / 2 - 4, -120); ctx.lineTo(obs.w / 2 + 4, -112);
+          ctx.moveTo(obs.w / 2 - 2, -50); ctx.lineTo(obs.w / 2 + 6, -42);
+          ctx.stroke();
 
-        // Musgo en la cima
-        ctx.fillStyle = '#65a854';
-        ctx.beginPath();
-        ctx.roundRect(-obs.w / 2 + 3, -obs.h - 4, obs.w - 6, 8, 4);
-        ctx.fill();
+          // Rama gruesa horizontal que cruza a la altura de la cabeza (despeje de 38px)
+          ctx.fillStyle = '#5c3a21';
+          ctx.beginPath();
+          ctx.moveTo(-obs.w / 2 - 18, -62);
+          ctx.quadraticCurveTo(0, -66, obs.w / 2 + 18, -60);
+          ctx.lineTo(obs.w / 2 + 18, -38);
+          ctx.quadraticCurveTo(0, -36, -obs.w / 2 - 18, -38);
+          ctx.closePath();
+          ctx.fill();
 
-        // Raíz decorativa en la base
-        ctx.fillStyle = '#7a553c';
-        ctx.beginPath();
-        ctx.roundRect(-obs.w / 2 - 4, -6, obs.w + 8, 6, 3);
-        ctx.fill();
+          // Sombra inferior de la rama
+          ctx.strokeStyle = '#3a2212';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(-obs.w / 2 - 18, -38);
+          ctx.quadraticCurveTo(0, -36, obs.w / 2 + 18, -38);
+          ctx.stroke();
+
+          // Estructura alta y copa densa que impide saltar por encima
+          ctx.fillStyle = '#264e32';
+          ctx.beginPath();
+          ctx.ellipse(0, -100, 56, 42, 0, 0, Math.PI * 2);
+          ctx.ellipse(-obs.w / 2, -135, 42, 42, 0, 0, Math.PI * 2);
+          ctx.ellipse(obs.w / 2, -135, 42, 42, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#3e7845';
+          ctx.beginPath();
+          ctx.ellipse(-6, -92, 46, 32, -0.05, 0, Math.PI * 2);
+          ctx.ellipse(obs.w / 2 - 6, -125, 34, 34, 0, 0, Math.PI * 2);
+          ctx.ellipse(-obs.w / 2 + 6, -125, 34, 34, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#5ca865';
+          ctx.beginPath();
+          ctx.ellipse(-10, -84, 36, 22, 0, 0, Math.PI * 2);
+          ctx.ellipse(12, -112, 28, 26, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Hojas colgantes pastel
+          ctx.fillStyle = '#4e9157';
+          for (let v = 0; v < 5; v++) {
+            const vx = -obs.w / 2 + 8 + v * 16;
+            ctx.beginPath();
+            ctx.ellipse(vx, -34, 4, 7, 0.1, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+        } else if (obs.type === 'double_log') {
+          // --- TRONCO DOBLE ---
+          // Dos troncos apoyados en la línea del suelo con espacio corto entre ellos
+          const logs = [
+            { ox: -24, w: 36, h: 33 },
+            { ox: 24, w: 36, h: 35 }
+          ];
+          for (const l of logs) {
+            ctx.fillStyle = '#5c3a21';
+            ctx.beginPath();
+            ctx.roundRect(l.ox - l.w / 2, -l.h, l.w, l.h, [8, 8, 3, 3]);
+            ctx.fill();
+
+            // Anillos
+            ctx.fillStyle = '#d49b6a';
+            ctx.beginPath();
+            ctx.ellipse(l.ox - l.w / 2 + 4, -l.h / 2, 4, l.h / 2 - 4, 0, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Musgo en la cima
+            ctx.fillStyle = '#65a854';
+            ctx.beginPath();
+            ctx.roundRect(l.ox - l.w / 2 + 2, -l.h - 3, l.w - 4, 6, 3);
+            ctx.fill();
+
+            // Raíz en el suelo
+            ctx.fillStyle = '#7a553c';
+            ctx.beginPath();
+            ctx.roundRect(l.ox - l.w / 2 - 3, -4, l.w + 6, 4, 2);
+            ctx.fill();
+          }
+          // Pequeño brote de pasto en medio
+          ctx.fillStyle = '#65a854';
+          ctx.beginPath();
+          ctx.arc(0, -2, 4, 0, Math.PI * 2);
+          ctx.fill();
+
+        } else if (obs.type === 'rock') {
+          // --- PIEDRA GRANDE ---
+          // Más ancha y alta que un tronco, apoyada exactamente en el pasto con musgo arriba
+          ctx.fillStyle = '#525a66';
+          ctx.beginPath();
+          ctx.ellipse(0, -obs.h / 2, obs.w / 2, obs.h / 2, 0, Math.PI, 0);
+          ctx.lineTo(obs.w / 2, 0);
+          ctx.lineTo(-obs.w / 2, 0);
+          ctx.closePath();
+          ctx.fill();
+
+          // Facetas y volumen
+          ctx.fillStyle = '#414852';
+          ctx.beginPath();
+          ctx.moveTo(-obs.w / 2 + 6, 0);
+          ctx.lineTo(-obs.w / 2 + 14, -obs.h * 0.7);
+          ctx.lineTo(0, -obs.h * 0.85);
+          ctx.lineTo(-6, 0);
+          ctx.closePath();
+          ctx.fill();
+
+          // Resalte de luz suave
+          ctx.fillStyle = '#788494';
+          ctx.beginPath();
+          ctx.ellipse(8, -obs.h * 0.65, obs.w * 0.22, obs.h * 0.2, 0.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Musgo arriba
+          ctx.fillStyle = '#5ca865';
+          ctx.beginPath();
+          ctx.roundRect(-obs.w * 0.35, -obs.h - 3, obs.w * 0.7, 8, 4);
+          ctx.fill();
+
+          // Tierra en la base
+          ctx.fillStyle = '#7a553c';
+          ctx.fillRect(-obs.w / 2 - 3, -3, obs.w + 6, 3);
+
+        } else if (obs.type === 'bush') {
+          // --- ARBUSTO CON ESPINAS ---
+          // Ancho, redondeado, con espinas pastel y bayas, apoyado en el suelo
+          ctx.fillStyle = '#264e32';
+          ctx.beginPath();
+          ctx.ellipse(0, -obs.h * 0.5, obs.w / 2, obs.h * 0.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#3a7248';
+          ctx.beginPath();
+          ctx.ellipse(-16, -obs.h * 0.55, obs.w * 0.32, obs.h * 0.42, -0.2, 0, Math.PI * 2);
+          ctx.ellipse(16, -obs.h * 0.52, obs.w * 0.32, obs.h * 0.42, 0.2, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#5ca865';
+          ctx.beginPath();
+          ctx.ellipse(0, -obs.h * 0.62, obs.w * 0.28, obs.h * 0.35, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Ramas con espinas
+          ctx.strokeStyle = '#422e1b';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(-20, -12); ctx.lineTo(-32, -26);
+          ctx.moveTo(20, -10); ctx.lineTo(34, -28);
+          ctx.stroke();
+
+          // Espinas pastel
+          ctx.fillStyle = '#e8c48a';
+          ctx.beginPath();
+          ctx.moveTo(-32, -26); ctx.lineTo(-39, -30); ctx.lineTo(-31, -22);
+          ctx.moveTo(34, -28); ctx.lineTo(42, -32); ctx.lineTo(33, -24);
+          ctx.fill();
+
+          // Bayas silvestres
+          ctx.fillStyle = '#d63439';
+          ctx.beginPath();
+          ctx.arc(-10, -obs.h * 0.7, 3.5, 0, Math.PI * 2);
+          ctx.arc(12, -obs.h * 0.65, 3.5, 0, Math.PI * 2);
+          ctx.arc(2, -obs.h * 0.4, 3, 0, Math.PI * 2);
+          ctx.fill();
+
+        } else {
+          // --- TRONCO SIMPLE ---
+          // Apoyado exactamente en la línea del pasto
+          ctx.fillStyle = '#5c3a21';
+          ctx.beginPath();
+          ctx.roundRect(-obs.w / 2, -obs.h, obs.w, obs.h, [8, 8, 3, 3]);
+          ctx.fill();
+
+          // Anillos de corte
+          ctx.fillStyle = '#d49b6a';
+          ctx.beginPath();
+          ctx.ellipse(-obs.w / 2 + 5, -obs.h / 2, 5, obs.h / 2 - 4, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Musgo en la cima
+          ctx.fillStyle = '#65a854';
+          ctx.beginPath();
+          ctx.roundRect(-obs.w / 2 + 3, -obs.h - 4, obs.w - 6, 8, 4);
+          ctx.fill();
+
+          // Raíz en la base
+          ctx.fillStyle = '#7a553c';
+          ctx.beginPath();
+          ctx.roundRect(-obs.w / 2 - 4, -4, obs.w + 8, 5, 2);
+          ctx.fill();
+        }
 
         ctx.restore();
       }
 
-      // Dibujar Lobo corriendo articulado (con salto dinámico sobre troncos)
+      // Dibujar Lobo persiguiendo
       const w = this.wolf;
       const wolfX = this.player.x - w.distanceBehind;
       const wolfMouth = w.distanceBehind < 180;
       const isWolfJumping = w.vy !== 0 || w.y < 530;
-      drawWolf(ctx, wolfX, w.y, 1.55, stateTime, wolfMouth, isWolfJumping);
+      drawWolf(ctx, wolfX, w.y, 1.55, stateTime, wolfMouth, isWolfJumping, w.isDucking);
 
-      // Dibujar a Anika (parpadeante si invulnerable)
+      // Dibujar a Anika (con animación de agacharse si isDucking)
       const p = this.player;
       const blinkVisible = isPlayerBlinkVisible(this.invulTimer);
 
@@ -2755,6 +3326,8 @@
           pAnim = p.vy < 0 ? 'jump' : 'fall';
         } else if (p.stumbleTimer > 0) {
           pAnim = 'cry';
+        } else if (p.isDucking) {
+          pAnim = 'duck';
         }
         drawGirl(ctx, p.x, p.y, {
           scale: 1.5,
@@ -2774,15 +3347,24 @@
       // Modal de Game Over
       if (this.gameOver) {
         drawGameOverModal(ctx,
-          () => { this.gameOver = false; this.init(); },
-          () => { this.gameOver = false; isPaused = false; switchState(STATE.MENU); }
+          () => { this.gameOver = false; gameState.retryLevel(); this.init(); },
+          () => { this.gameOver = false; isPaused = false; gameState.resetLives(3); switchState(STATE.MENU); }
         );
       }
     },
 
     drawHUD(ctx) {
-      // --- ZONA SUPERIOR IZQUIERDA: instrucciones (maxW=340) ---
-      drawInstructionBox(ctx, 'Nivel 2: ¡Salta los troncos caídos para escapar del lobo!', 24, 20, 340);
+      // --- ESQUINA SUPERIOR IZQUIERDA: marco HUD de ayuda (desaparece a los 4 segundos sin solapar barra ni vidas) ---
+      if (this.tutorialTimer > 0) {
+        ctx.save();
+        const tAlpha = Math.min(1, this.tutorialTimer / 0.8);
+        ctx.globalAlpha = tAlpha;
+        const msg = isTouchDevice
+          ? 'Salta los troncos [SALTO] y agáchate bajo las ramas [AGACH.]'
+          : 'Salta los troncos y agáchate bajo las ramas';
+        drawInstructionBox(ctx, msg, 24, 20, 360);
+        ctx.restore();
+      }
 
       ctx.save();
 
@@ -2796,7 +3378,7 @@
         ctx.fillText('¡EL LOBO SE ACERCA!', V_WIDTH / 2, 108);
       }
 
-      // --- ZONA SUPERIOR CENTRO: barra de progreso (ancho 280, centrada) ---
+      // --- ZONA SUPERIOR CENTRO: barra de progreso ---
       const barW = 280;
       const barX = V_WIDTH / 2 - barW / 2;
       const barY = 20;
@@ -2825,8 +3407,8 @@
 
       ctx.restore();
 
-      // --- CORAZONES: 3 vidas centradas justo debajo de la barra de progreso ---
-      drawHearts(ctx, this.lives, 3, V_WIDTH / 2, 56);
+      // --- CORAZONES: vidas actuales compartidas centradas debajo de la barra ---
+      drawHearts(ctx, gameState.lives, 3, V_WIDTH / 2, 56);
     }
   };
 
@@ -2834,10 +3416,13 @@
   // 10. NIVEL 3: EL GRAN PINO (Doodle Jump / Vertical)
   // ==========================================
   const level3 = {
-    lives: 3,
+    get lives() { return gameState.lives; },
+    set lives(v) { gameState.lives = v; },
     gameOver: false,
     invulTimer: 0,
     victoryStarted: false,
+    birds: [],
+    birdSpawnTimer: 2.5,
     player: {
       x: V_WIDTH / 2,
       y: 520,
@@ -2909,10 +3494,11 @@
     },
 
     init() {
-      this.lives = 3;
       this.gameOver = false;
       this.invulTimer = 0;
       this.victoryStarted = false;
+      this.birds = [];
+      this.birdSpawnTimer = 2.5;
       duckInNest = true;
       this.player.x = V_WIDTH / 2;
       this.player.y = 520;
@@ -3131,6 +3717,131 @@
         this.cameraY += (targetCamY - this.cameraY) * 0.12;
       }
 
+      // --- Sistema de Pájaros que cruzan la pantalla horizontalmente ---
+      const inSummitCrown = summitProgress >= SUMMIT_CROWN_START_PROGRESS || p.y < (this.nest.y + 480);
+
+      // No aparecen pájaros en el tramo final de la copa, desde unos metros antes del nido
+      if (!inSummitCrown) {
+        this.birdSpawnTimer -= 1 / 60;
+        if (this.birdSpawnTimer <= 0) {
+          // Dirección aleatoria: 1 (de izq a der) o -1 (de der a izq)
+          const dir = Math.random() < 0.5 ? 1 : -1;
+
+          // Velocidad variable: lenta, media o rápida
+          const speed = BIRD_SPEED_MIN + Math.random() * (BIRD_SPEED_MAX - BIRD_SPEED_MIN);
+
+          // Altura relativa a la cámara
+          const candidateScreenY = 120 + Math.random() * (V_HEIGHT - 240);
+          let worldY = this.cameraY + candidateScreenY;
+
+          // No pueden aparecer dos al mismo tiempo a la misma altura
+          const tooClose = this.birds.some(b => Math.abs(b.y - worldY) < 65);
+
+          // No deben cruzar sobre las ramas de forma que oculten la superficie donde se para Anika
+          for (const br of this.branches) {
+            if (Math.abs(br.y - worldY) < 22) {
+              worldY += (worldY < br.y ? -26 : 26);
+            }
+          }
+
+          if (!tooClose) {
+            const palettes = ['#f26419', '#38a3a5', '#f9c74f', '#e76f51', '#457b9d'];
+            const color = palettes[Math.floor(Math.random() * palettes.length)];
+            this.birds.push({
+              dir,
+              x: dir === 1 ? -40 : V_WIDTH + 40,
+              y: worldY,
+              vx: dir * speed,
+              speed,
+              warnTimer: BIRD_WARN_TIME,
+              active: false,
+              wingPhase: Math.random() * Math.PI * 2,
+              color,
+              hitW: 20,
+              hitH: 14
+            });
+
+            // Dificultad progresiva: pocos pájaros al principio y más frecuentes a medida que sube
+            const interval = (BIRD_SPAWN_MAX - (summitProgress * (BIRD_SPAWN_MAX - BIRD_SPAWN_MIN))) * (0.85 + Math.random() * 0.3);
+            this.birdSpawnTimer = Math.max(BIRD_SPAWN_MIN, interval);
+          } else {
+            this.birdSpawnTimer = 0.6;
+          }
+        }
+      }
+
+      // Actualizar pájaros y colisiones
+      for (let i = this.birds.length - 1; i >= 0; i--) {
+        const b = this.birds[i];
+        if (b.warnTimer > 0) {
+          b.warnTimer -= 1 / 60;
+          if (b.warnTimer <= 0) {
+            b.active = true;
+          }
+        } else if (b.active) {
+          b.x += b.vx;
+          b.wingPhase += 0.28;
+
+          // Colisión con la niña: hitbox del pájaro más pequeña que su dibujo (20x14 vs 30x20)
+          if (this.invulTimer <= 0 && !this.gameOver && !this.victoryStarted) {
+            const girlLeft = p.x - 14;
+            const girlRight = p.x + 14;
+            const girlTop = p.y - 48;
+            const girlBottom = p.y;
+
+            const birdLeft = b.x - b.hitW / 2;
+            const birdRight = b.x + b.hitW / 2;
+            const birdTop = b.y - b.hitH / 2;
+            const birdBottom = b.y + b.hitH / 2;
+
+            if (girlRight > birdLeft && girlLeft < birdRight && girlBottom > birdTop && girlTop < birdBottom) {
+              this.lives = Math.max(0, this.lives - 1);
+              audio.sfxGrowl();
+
+              // Pequeño empujón horizontal en la dirección de vuelo del pájaro (sin sacudida de cámara ni rebote vertical)
+              p.vx = b.dir * 3.8;
+              p.x += p.vx;
+
+              // Si el empujón la deja sin apoyo en la plataforma, cae y reaparece
+              if (p.supportBranch) {
+                const lb = p.supportBranch.x - p.supportBranch.w / 2;
+                const rb = p.supportBranch.x + p.supportBranch.w / 2;
+                if (p.x < lb || p.x > rb) {
+                  p.onGround = false;
+                  p.supportBranch = null;
+                }
+              }
+
+              // Invulnerabilidad breve con parpadeo (exactamente BLINK_COUNT = 2)
+              this.invulTimer = BLINK_DURATION;
+
+              // Partículas de plumas
+              for (let k = 0; k < 8; k++) {
+                particles.add({
+                  x: b.x,
+                  y: b.y,
+                  vx: (Math.random() - 0.5) * 4,
+                  vy: -Math.random() * 3 - 1,
+                  size: 3,
+                  color: b.color,
+                  life: 30
+                });
+              }
+
+              if (this.lives <= 0) {
+                this.gameOver = true;
+                return;
+              }
+            }
+          }
+
+          // Eliminar si sale de la pantalla
+          if (b.x < -140 || b.x > V_WIDTH + 140) {
+            this.birds.splice(i, 1);
+          }
+        }
+      }
+
       // Caída por debajo de la pantalla: pierde una vida y reaparece en la última rama estable
       if (p.y > this.cameraY + V_HEIGHT + 40) {
         audio.sfxSplash();
@@ -3246,6 +3957,69 @@
       // Dibujar Nido del águila en la cúspide
       this.drawEagleNest(ctx, this.nest.x, this.nest.y, duckInNest);
 
+      // Dibujar Pájaros volando (pasan por delante del fondo y ramas, pero por detrás de la niña)
+      for (const b of this.birds) {
+        if (!b.active) continue;
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.scale(b.dir, 1);
+
+        // Cola de plumas
+        ctx.fillStyle = '#322621';
+        ctx.beginPath();
+        ctx.moveTo(-11, -1);
+        ctx.lineTo(-19, -6);
+        ctx.lineTo(-17, 3);
+        ctx.closePath();
+        ctx.fill();
+
+        // Cuerpo redondeado
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 13, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Pecho / panza suave
+        ctx.fillStyle = '#fff4e0';
+        ctx.beginPath();
+        ctx.ellipse(3, 3, 8, 5, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Cabeza
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(8, -4, 6.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Pico tierno naranja
+        ctx.fillStyle = '#fca311';
+        ctx.beginPath();
+        ctx.moveTo(14, -5);
+        ctx.lineTo(20, -3.5);
+        ctx.lineTo(14, -2);
+        ctx.closePath();
+        ctx.fill();
+
+        // Ojo tierno con brillo
+        ctx.fillStyle = '#1e1c24';
+        ctx.beginPath();
+        ctx.arc(10, -5, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(10.6, -5.5, 0.7, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ala animada con aleteo fluido
+        const flap = Math.sin(b.wingPhase) * 11;
+        ctx.fillStyle = '#2f2b38';
+        ctx.beginPath();
+        ctx.ellipse(-2, -3 + flap * 0.4, 8, 4.5 + Math.abs(flap) * 0.45, -0.2 + flap * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
       // Dibujar Niña saltando (parpadeante si invulnerable tras reaparecer)
       const blinkVisible = isPlayerBlinkVisible(this.invulTimer);
 
@@ -3265,14 +4039,48 @@
 
       ctx.restore();
 
+      // Señales de aviso previo de pájaros (~0.7s antes de entrar) en los bordes de la pantalla
+      for (const b of this.birds) {
+        if (b.warnTimer > 0) {
+          const screenY = b.y - this.cameraY;
+          if (screenY > 40 && screenY < V_HEIGHT - 40) {
+            const warnX = b.dir === 1 ? 32 : V_WIDTH - 32;
+            const pulse = 1 + Math.sin(stateTime * 22) * 0.14;
+
+            ctx.save();
+            ctx.translate(warnX, screenY);
+            ctx.scale(pulse, pulse);
+
+            // Círculo de alerta brillante
+            ctx.fillStyle = 'rgba(255, 170, 30, 0.90)';
+            ctx.beginPath();
+            ctx.arc(0, 0, 18, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2.5;
+            ctx.stroke();
+
+            // Símbolo con flecha y exclamación
+            ctx.fillStyle = '#221528';
+            ctx.font = '700 15px Fredoka';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            const arrow = b.dir === 1 ? '▶!' : '!◀';
+            ctx.fillText(arrow, 0, 1);
+
+            ctx.restore();
+          }
+        }
+      }
+
       // HUD de altitud y vidas
       this.drawHUD(ctx);
 
       // Modal de Game Over
       if (this.gameOver) {
         drawGameOverModal(ctx,
-          () => { this.gameOver = false; this.init(); },
-          () => { this.gameOver = false; isPaused = false; switchState(STATE.MENU); }
+          () => { this.gameOver = false; gameState.retryLevel(); this.init(); },
+          () => { this.gameOver = false; isPaused = false; gameState.resetLives(3); switchState(STATE.MENU); }
         );
       }
     },
@@ -3456,8 +4264,8 @@
       ctx.fillText('Ctrl + M: probar cinemática', 36, 96);
       ctx.restore();
 
-      // 2. Centro superior: 3 vidas mostradas como 3 corazones rojos
-      drawHearts(ctx, this.lives, 3, V_WIDTH / 2, 24);
+      // 2. Centro superior: vidas actuales mostradas como corazones rojos (máx 3)
+      drawHearts(ctx, gameState.lives, 3, V_WIDTH / 2, 24);
 
       ctx.save();
 
@@ -4039,6 +4847,7 @@
     if (mouse.clicked && btnPlayHover) {
       mouse.clicked = false;
       audio.sfxClick();
+      gameState.resetLives(3);
       cine1.reset();
       switchState(STATE.CINE1);
       return;
@@ -4157,10 +4966,11 @@
 
       ctx.restore();
 
-      // Click o touch en la tarjeta
+      // Click o touch en la tarjeta: inicia con 3 vidas completas
       if (mouse.clicked && hover) {
         mouse.clicked = false;
         audio.sfxClick();
+        gameState.resetLives(3);
         lvl.init();
         switchState(lvl.state);
       }
@@ -4313,10 +5123,16 @@
             pendingNextState = null;
 
             // Inicializar nuevo estado
-            if (currentState === STATE.LEVEL1) level1.init();
-            else if (currentState === STATE.LEVEL2) level2.init();
-            else if (currentState === STATE.LEVEL3) level3.init();
-            else if (currentState === STATE.CINE_FINAL) cineFinal.buildAssets();
+            if (currentState === STATE.LEVEL1) {
+              gameState.startLevel();
+              level1.init();
+            } else if (currentState === STATE.LEVEL2) {
+              gameState.startLevel();
+              level2.init();
+            } else if (currentState === STATE.LEVEL3) {
+              gameState.startLevel();
+              level3.init();
+            } else if (currentState === STATE.CINE_FINAL) cineFinal.buildAssets();
           }
         }
       } else if (transitionAlpha > 0) {
