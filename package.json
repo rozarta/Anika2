@@ -1,0 +1,46 @@
+{
+  "name": "el-viaje-de-anika",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Juego de aventura 2D - 7mo Programación, Instituto Técnico La Falda",
+  "author": "Juego de aventura 2D - 7mo Programación, Instituto Técnico La Falda",
+  "copyright": "© 2026 Zartarian Rocio y Maldonado Paula - Instituto Técnico La Falda",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "^41.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.institutotecnicolafalda.viajedeanika",
+    "productName": "El Viaje de Anika",
+    "asar": true,
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "game/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "ElViajeDeAnika.exe"
+    }
+  },
+  "allowScripts": {
+    "electron@41.10.7": true
+  }
+}
