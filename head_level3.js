@@ -648,8 +648,6 @@
 
       ctx.font = '22px Fredoka';
       ctx.textAlign = 'center';
-      ctx.fillText('🐣', V_WIDTH - 44, 75);
-      ctx.fillText('👧', V_WIDTH - 44, 435);
 
       ctx.restore();
     }

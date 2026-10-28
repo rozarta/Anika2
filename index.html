@@ -143,6 +143,16 @@
       background: rgba(255, 255, 255, 0.35);
     }
 
+    .top-btn svg {
+      width: 24px;
+      height: 24px;
+      fill: currentColor;
+      stroke: currentColor;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     #pause-toggle {
       display: none; /* Se activa dinámicamente en los niveles 1, 2 y 3 */
     }
@@ -155,8 +165,8 @@
 
     <!-- Barra superior con Botón de Pausa y Audio -->
     <div id="top-bar">
-      <div id="pause-toggle" class="top-btn" title="Pausar juego (P / Esc)">⏸</div>
-      <div id="audio-toggle" class="top-btn" title="Activar/Desactivar Sonido">🔊</div>
+      <div id="pause-toggle" class="top-btn" title="Pausar juego (P / Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" fill="none"/></svg></div>
+      <div id="audio-toggle" class="top-btn" title="Activar/Desactivar Sonido"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M16 9a5 5 0 0 1 0 6M18.5 6.5a9 9 0 0 1 0 11" fill="none"/></svg></div>
     </div>
 
     <!-- Controles táctiles -->
@@ -180,10 +190,11 @@
    */
 
   // ==========================================
-  // 1. CONSTANTES Y CONFIGURACIÓN GENERAL
-  // ==========================================
   const V_WIDTH = 1280;
   const V_HEIGHT = 720;
+  const LOGO_SIZE_LEVEL = 0.09;
+  const logoImage = new Image();
+  logoImage.src = 'logo.svg';
 
   const GRAVITY = 0.58;
   const PLAYER_SPEED = 4.8;
@@ -193,6 +204,10 @@
   // Constantes específicas para el Nivel 1 (El Lago): salto más bajo, medido y exigente
   const JUMP_FORCE_LAKE = -7.5;      // ~65% de la fuerza normal (fácil de ajustar)
   const JUMP_HOLD_BOOST_LAKE = -0.14; // Rango más corto entre salto mínimo y máximo
+  const STONE_MOVE_CHANCE = 0.45;
+  const STONE_H_RANGE = 30;
+  const STONE_V_RANGE = 8;
+  const STONE_MOVE_SPEED = 0.8;
 
   // Constantes específicas para el Nivel 2 (El Lobo): fuerza ajustada un +13% para superar holgadamente cualquier tronco
   const JUMP_FORCE_WOLF = -8.8;       // Ajustable independientemente del nivel 1
@@ -230,11 +245,10 @@
   const PINE_BRANCH_INSET = 10;
 
   // Constantes de pájaros para el Nivel 3 (El Gran Pino)
-  const BIRD_SPAWN_MIN = 2.4;    // segundos mínimos entre apariciones
-  const BIRD_SPAWN_MAX = 5.0;    // segundos máximos entre apariciones
-  const BIRD_SPEED_MIN = 3.6;    // velocidad horizontal mínima
-  const BIRD_SPEED_MAX = 6.2;    // velocidad horizontal máxima
-  const BIRD_WARN_TIME = 0.7;    // aviso previo de 0.7 segundos
+  const BIRD_SPAWN_MIN = 1.2;    // segundos mínimos entre apariciones
+  const BIRD_SPAWN_MAX = 2.5;    // segundos máximos entre apariciones
+  const BIRD_SPEED_MIN = 5.4;    // velocidad horizontal mínima, ~50% más rápida
+  const BIRD_SPEED_MAX = 9.3;    // velocidad horizontal máxima, ~50% más rápida
 
   // ==========================================
   // SISTEMA DE VIDAS COMPARTIDAS ENTRE NIVELES
@@ -330,6 +344,81 @@
   const pauseToggleBtn = document.getElementById('pause-toggle');
   const touchControlsElem = document.getElementById('touch-controls');
 
+  function getCanvasUiScale() {
+    const rect = canvas.getBoundingClientRect();
+    return rect.width > 0 ? V_WIDTH / rect.width : 1;
+  }
+
+  function drawLogo(ctx, size) {
+    if (!logoImage.complete || !logoImage.naturalWidth) return;
+    const scale = getCanvasUiScale();
+    const logoSize = V_WIDTH * size;
+    const margin = 18 * scale;
+    const isLevelLogo = size === LOGO_SIZE_LEVEL;
+    const touchControlsVisible = isLevelLogo && getComputedStyle(touchControlsElem).display !== 'none';
+    // En móvil el extremo inferior queda reservado para los controles táctiles.
+    const x = touchControlsVisible ? margin : V_WIDTH - margin - logoSize;
+    const y = touchControlsVisible ? 120 * scale : V_HEIGHT - margin - logoSize;
+    if (isLevelLogo && !touchControlsVisible && currentState === STATE.LEVEL3) {
+      const birdOverlapsLogo = level3.birds.some(b => {
+        const birdY = b.y - level3.cameraY;
+        return b.x + 22 > x && b.x - 22 < x + logoSize && birdY + 16 > y && birdY - 16 < y + logoSize;
+      });
+      const girlOverlapsLogo = level3.player.x + 30 > x && level3.player.x - 30 < x + logoSize &&
+        level3.player.y - level3.cameraY > y && level3.player.y - level3.cameraY - 60 < y + logoSize;
+      if (birdOverlapsLogo || girlOverlapsLogo) return;
+    }
+    const radius = 10 * scale;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(x, y, logoSize, logoSize, radius);
+    ctx.clip();
+    ctx.drawImage(logoImage, x, y, logoSize, logoSize);
+    ctx.restore();
+  }
+
+  function drawCredits(ctx) {
+    const scale = getCanvasUiScale();
+    const margin = 18 * scale;
+    const logoSize = V_WIDTH * LOGO_SIZE_LEVEL;
+    const maxWidth = V_WIDTH - margin * 2 - logoSize - 24 * scale;
+    const fontSize = 16 * scale;
+    const lineHeight = 19 * scale;
+    const text = 'Integrantes: Zartarian Rocio y Maldonado Paula';
+
+    ctx.save();
+    ctx.font = `500 ${fontSize}px Fredoka, Quicksand, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 2.5 * scale;
+    ctx.strokeStyle = 'rgba(42, 30, 25, 0.72)';
+    ctx.fillStyle = '#ffffff';
+
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const candidate = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(candidate).width > maxWidth) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = candidate;
+      }
+    }
+    if (line) lines.push(line);
+
+    const firstBaseline = V_HEIGHT - margin - (lines.length - 1) * lineHeight;
+    lines.forEach((creditLine, index) => {
+      const y = firstBaseline + index * lineHeight;
+      ctx.strokeText(creditLine, margin, y);
+      ctx.fillText(creditLine, margin, y);
+    });
+    ctx.restore();
+  }
+
   // Estado del sistema de pausa
   let isPaused = false;
 
@@ -340,11 +429,11 @@
     }
     isPaused = !isPaused;
     if (isPaused) {
-      pauseToggleBtn.textContent = '▶';
+      pauseToggleBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l12 7-12 7z"/></svg>';
       pauseToggleBtn.title = 'Reanudar juego (P / Esc)';
       audio.pause();
     } else {
-      pauseToggleBtn.textContent = '⏸';
+      pauseToggleBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" fill="none"/></svg>';
       pauseToggleBtn.title = 'Pausar juego (P / Esc)';
       audio.resume();
     }
@@ -710,7 +799,9 @@
   audioToggleBtn.addEventListener('click', () => {
     audio.init();
     audio.enabled = !audio.enabled;
-    audioToggleBtn.textContent = audio.enabled ? '🔊' : '🔇';
+    audioToggleBtn.innerHTML = audio.enabled
+      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M16 9a5 5 0 0 1 0 6M18.5 6.5a9 9 0 0 1 0 11" fill="none"/></svg>'
+      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3z"/><path d="M16 9l5 6m0-6-5 6" fill="none"/></svg>';
     audioToggleBtn.style.opacity = audio.enabled ? '1' : '0.5';
   });
 
@@ -889,10 +980,7 @@
           ctx.restore();
         } else if (p.type === 'heart') {
           ctx.save();
-          ctx.translate(px, py);
-          ctx.font = `${p.size * 2}px Fredoka`;
-          ctx.textAlign = 'center';
-          ctx.fillText('💖', 0, 0);
+          drawHeartShape(ctx, px, py, p.size * 0.9);
           ctx.restore();
         } else {
           ctx.beginPath();
@@ -964,14 +1052,6 @@
 
     if (animState === 'duck') {
       // --- ANIMACIÓN DE AGACHARSE: Se encoge, piernas flexionadas y cabeza baja ---
-      // Sombra en el suelo más ancha y baja
-      ctx.save();
-      ctx.fillStyle = 'rgba(20, 25, 30, 0.28)';
-      ctx.beginPath();
-      ctx.ellipse(0, 2, 20, 5.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
       // Botitas marrones pegadas al suelo / piernas flexionadas
       ctx.fillStyle = '#6d4834';
       ctx.beginPath();
@@ -1095,14 +1175,6 @@
       legR = 7;
       capeAngle = -0.3;
     }
-
-    // Sombra en el suelo
-    ctx.save();
-    ctx.fillStyle = 'rgba(20, 25, 30, 0.22)';
-    ctx.beginPath();
-    ctx.ellipse(0, 2, 16, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
 
     // Piernas / Botitas marrones
     ctx.fillStyle = '#6d4834';
@@ -1291,12 +1363,6 @@
 
     const wingSpan = Math.sin(wingPhase) * 28;
 
-    // Sombra del águila
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-    ctx.beginPath();
-    ctx.ellipse(0, 110, 35, 12, 0, 0, Math.PI * 2);
-    ctx.fill();
-
     // Ala trasera
     ctx.fillStyle = '#4a3728';
     ctx.beginPath();
@@ -1393,12 +1459,6 @@
 
     // Oscilación vertical suave del cuerpo durante la carrera (en salto se estabiliza, al agacharse baja pegado al suelo)
     const bodyBob = isDucking ? -13 : (isJumping ? -6 : Math.abs(Math.sin(runTime * 14)) * 4);
-
-    // Sombra del lobo en el suelo
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
-    ctx.beginPath();
-    ctx.ellipse(0, 4, isDucking ? 44 : 38, isDucking ? 6 : 8, 0, 0, Math.PI * 2);
-    ctx.fill();
 
     // Puntos de pivote articulares FIJOS al cuerpo del lobo
     const hipX = -18;
@@ -1721,16 +1781,29 @@
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    ctx.font = '20px Fredoka';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
     for (let i = 0; i < maxLives; i++) {
       const hx = boxX + 10 + i * (heartW + gap) + heartW / 2;
       const hy = cy + boxH / 2;
       ctx.globalAlpha = i < currentLives ? 1 : 0.25;
-      ctx.fillText('❤️', hx, hy);
+      ctx.fillStyle = '#ff5267';
+      drawHeartShape(ctx, hx, hy, 9.5);
     }
     ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  function drawHeartShape(ctx, x, y, size) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(size / 10, size / 10);
+    ctx.beginPath();
+    ctx.moveTo(0, 8);
+    ctx.bezierCurveTo(-2, 6, -9, 1, -9, -3);
+    ctx.bezierCurveTo(-9, -9, -2, -10, 0, -5);
+    ctx.bezierCurveTo(2, -10, 9, -9, 9, -3);
+    ctx.bezierCurveTo(9, 1, 2, 6, 0, 8);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
@@ -1764,7 +1837,7 @@
     ctx.font = '700 44px Fredoka, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('💔 PERDISTE', 0, -95);
+    ctx.fillText('PERDISTE', 0, -95);
 
     ctx.fillStyle = '#ffccd0';
     ctx.font = '500 20px Fredoka, sans-serif';
@@ -1772,7 +1845,7 @@
 
     // Botón REINTENTAR
     const btnRetryHover = isMouseInBox(modalX, modalY + 25, 280, 52);
-    drawButton(ctx, 0, 25, 280, 52, 'REINTENTAR', btnRetryHover, '🔄');
+    drawButton(ctx, 0, 25, 280, 52, 'REINTENTAR', btnRetryHover);
     if (mouse.clicked && btnRetryHover) {
       mouse.clicked = false;
       audio.sfxClick();
@@ -1784,7 +1857,7 @@
 
     // Botón VOLVER AL INICIO
     const btnMenuHover = isMouseInBox(modalX, modalY + 95, 280, 52);
-    drawButton(ctx, 0, 95, 280, 52, 'VOLVER AL INICIO', btnMenuHover, '🏠');
+    drawButton(ctx, 0, 95, 280, 52, 'VOLVER AL INICIO', btnMenuHover);
     if (mouse.clicked && btnMenuHover) {
       mouse.clicked = false;
       audio.sfxClick();
@@ -1829,7 +1902,7 @@
     ctx.font = '700 38px Fredoka, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('⏸️ JUEGO EN PAUSA', 0, -95);
+    ctx.fillText('JUEGO EN PAUSA', 0, -95);
 
     // Subtítulo amigable
     ctx.fillStyle = '#ffffff';
@@ -1838,7 +1911,7 @@
 
     // Botón 1: REANUDAR
     const btnResumeHover = isMouseInBox(modalX, modalY + 30, 270, 52);
-    drawButton(ctx, 0, 30, 270, 52, 'REANUDAR', btnResumeHover, '▶');
+    drawButton(ctx, 0, 30, 270, 52, 'REANUDAR', btnResumeHover);
     if (mouse.clicked && btnResumeHover) {
       mouse.clicked = false;
       audio.sfxClick();
@@ -1850,12 +1923,12 @@
 
     // Botón 2: VOLVER AL INICIO
     const btnMenuHover = isMouseInBox(modalX, modalY + 100, 270, 52);
-    drawButton(ctx, 0, 100, 270, 52, 'VOLVER AL INICIO', btnMenuHover, '🏠');
+    drawButton(ctx, 0, 100, 270, 52, 'VOLVER AL INICIO', btnMenuHover);
     if (mouse.clicked && btnMenuHover) {
       mouse.clicked = false;
       audio.sfxClick();
       isPaused = false;
-      pauseToggleBtn.textContent = '⏸';
+      pauseToggleBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" fill="none"/></svg>';
       audio.resume();
       gameState.resetLives(3);
       switchState(STATE.MENU);
@@ -1895,7 +1968,7 @@
   }
 
   // Botón estético estilizado para menús
-  function drawButton(ctx, x, y, w, h, text, isHover = false, icon = '') {
+  function drawButton(ctx, x, y, w, h, text, isHover = false) {
     ctx.save();
     ctx.translate(x, y);
 
@@ -1932,7 +2005,7 @@
     ctx.font = '700 24px Fredoka, Quicksand, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`${icon ? icon + ' ' : ''}${text}`, 0, 1);
+    ctx.fillText(text, 0, 1);
 
     ctx.restore();
   }
@@ -2136,7 +2209,7 @@
 
       // Botón flotante para SALTAR cinemática (en espacio de pantalla)
       const skipHover = isMouseInBox(V_WIDTH - 110, 42, 160, 42);
-      drawButton(ctx, V_WIDTH - 110, 42, 160, 42, 'SALTAR ▶', skipHover);
+      drawButton(ctx, V_WIDTH - 110, 42, 160, 42, 'SALTAR', skipHover);
       if (mouse.clicked && skipHover) {
         mouse.clicked = false;
         audio.sfxClick();
@@ -2237,8 +2310,10 @@
       vx: 0,
       vy: 0,
       grounded: true,
+      supportStone: null,
       checkpointX: 80,
       checkpointY: 440,
+      checkpointStone: null,
       respawning: false,
       respawnTimer: 0,
       invulTimer: 0
@@ -2257,9 +2332,11 @@
       this.player.vx = 0;
       this.player.vy = 0;
       this.player.grounded = true;
+      this.player.supportStone = null;
       this.player.facingRight = true;
       this.player.checkpointX = 80;
       this.player.checkpointY = 440;
+      this.player.checkpointStone = null;
       this.player.respawning = false;
       this.player.respawnTimer = 0;
       this.player.invulTimer = 0;
@@ -2292,12 +2369,84 @@
         // Orilla final derecha (hierba natural que inicia en x = 2040, a solo 79px de la última piedra)
         { x: 3540, y: 470, w: 3000, h: 250, isGround: true, left: 2040, right: 5040, safe: true }
       ];
+
+      // Aproximadamente 45% de las piedras interiores se mueven; nunca hay dos móviles seguidas.
+      const interiorIndices = [];
+      for (let i = 2; i < this.stones.length - 2; i++) interiorIndices.push(i);
+      const parity = Math.random() < 0.5 ? 0 : 1;
+      const candidates = interiorIndices.filter((i, index) => index % 2 === parity);
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      const moveCount = Math.min(candidates.length, Math.round((this.stones.length - 2) * STONE_MOVE_CHANCE));
+      const movingSet = new Set(candidates.slice(0, moveCount));
+
+      this.stones.forEach((stone, index) => {
+        stone.baseX = stone.x;
+        stone.baseY = stone.y;
+        stone.previousX = stone.x;
+        stone.previousY = stone.y;
+        stone.phase = Math.random() * Math.PI * 2;
+        stone.moveXRange = 0;
+        stone.moveYRange = 0;
+        stone.moving = movingSet.has(index);
+        if (stone.moving) {
+          stone.moveXRange = Math.min(STONE_H_RANGE, 0.28 * 120);
+          stone.moveYRange = STONE_V_RANGE;
+        }
+      });
+
+      // Limitar cualquier rango que pudiera reducir demasiado el espacio de salto entre plataformas.
+      for (let i = 0; i < this.stones.length - 1; i++) {
+        const a = this.stones[i];
+        const b = this.stones[i + 1];
+        const rightA = a.isGround ? a.right : a.x + a.w / 2;
+        const leftB = b.isGround ? b.left : b.x - b.w / 2;
+        const baseGap = Math.max(0, leftB - rightA);
+        const moveAllowance = a.moveXRange + b.moveXRange;
+        const worstRise = Math.max(0, a.y - b.y) + a.moveYRange + b.moveYRange;
+        const jumpSpeed = Math.abs(JUMP_FORCE_LAKE);
+        const jumpRoot = Math.sqrt(Math.max(0, jumpSpeed * jumpSpeed - 2 * GRAVITY * worstRise));
+        const descendingTime = (jumpSpeed + jumpRoot) / GRAVITY;
+        const maxSafeGap = PLAYER_SPEED * descendingTime * 0.85;
+        if (baseGap + moveAllowance > maxSafeGap) {
+          const allowedMovement = Math.max(0, maxSafeGap - baseGap);
+          const scale = moveAllowance > 0 ? allowedMovement / moveAllowance : 1;
+          a.moveXRange *= scale;
+          b.moveXRange *= scale;
+        }
+        const minGap = baseGap - a.moveXRange - b.moveXRange;
+        if (minGap < 2) {
+          const scale = Math.max(0, (baseGap - 2) / Math.max(1, a.moveXRange + b.moveXRange));
+          a.moveXRange *= scale;
+          b.moveXRange *= scale;
+        }
+      }
     },
 
     update() {
       const p = this.player;
 
       if (this.gameOver) return;
+
+      const previousSupport = p.grounded ? p.supportStone : null;
+      for (const stone of this.stones) {
+        stone.previousX = stone.x;
+        stone.previousY = stone.y;
+        if (stone.moving) {
+          stone.x = stone.baseX + Math.sin(stateTime * STONE_MOVE_SPEED + stone.phase) * stone.moveXRange;
+          stone.y = stone.baseY + Math.sin(stateTime * STONE_MOVE_SPEED * 0.7 + stone.phase) * stone.moveYRange;
+        }
+        if (p.checkpointStone === stone) {
+          p.checkpointX = stone.x;
+          p.checkpointY = stone.y;
+        }
+      }
+      if (previousSupport && !p.respawning) {
+        p.x += previousSupport.x - previousSupport.previousX;
+        p.y += previousSupport.y - previousSupport.previousY;
+      }
 
       if (p.invulTimer > 0) {
         p.invulTimer -= 1 / 60;
@@ -2311,6 +2460,8 @@
           p.y = p.checkpointY;
           p.vx = 0;
           p.vy = 0;
+          p.supportStone = p.checkpointStone;
+          p.grounded = !!p.checkpointStone;
           p.invulTimer = BLINK_DURATION; // Exactamente 2 parpadeos en 1 segundo
         }
         return;
@@ -2368,6 +2519,7 @@
       // Comprobación de aterrizaje sobre piedras u orillas
       // Hitbox ajustada para que los pies no caigan mientras estén sobre tierra o piedra
       p.grounded = false;
+      p.supportStone = null;
       const footTol = 8;
       for (const stone of this.stones) {
         const top = stone.y;
@@ -2381,9 +2533,11 @@
             p.y = top;
             p.vy = 0;
             p.grounded = true;
+            p.supportStone = stone.isGround ? null : stone;
             if (stone.safe) {
               p.checkpointX = stone.isGround ? Math.max(80, Math.min(p.x, right - 40)) : stone.x;
               p.checkpointY = stone.y;
+              p.checkpointStone = stone.isGround ? null : stone;
             }
           }
         }
@@ -2531,10 +2685,18 @@
           ctx.fill();
 
           // Capa de musgo verde superior
-          ctx.fillStyle = '#83b85e';
+          ctx.fillStyle = s.moving ? '#91bd69' : '#83b85e';
           ctx.beginPath();
           ctx.roundRect(-s.w / 2 - 2, -2, s.w + 4, 10, 5);
           ctx.fill();
+
+          if (s.moving) {
+            ctx.fillStyle = 'rgba(207, 231, 151, 0.75)';
+            ctx.beginPath();
+            ctx.arc(-s.w * 0.18, 2, 2.2, 0, Math.PI * 2);
+            ctx.arc(s.w * 0.22, 1, 1.6, 0, Math.PI * 2);
+            ctx.fill();
+          }
 
           // Destello de agua en la base
           ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
@@ -2609,12 +2771,11 @@
       // Iconos flanqueando la barra
       ctx.font = '16px Fredoka';
       ctx.textAlign = 'center';
-      ctx.fillText('👧', barX - 16, barY + 18);
-      ctx.fillText('🌲', barX + barW + 16, barY + 18);
       ctx.restore();
 
       // 3. Corazones: vidas actuales (máx 3), centrados justo debajo de la barra de progreso
       drawHearts(ctx, gameState.lives, 3, V_WIDTH / 2, 54);
+      drawLogo(ctx, LOGO_SIZE_LEVEL);
     }
   };
 
@@ -3402,13 +3563,12 @@
       // Iconos flanqueando la barra
       ctx.font = '18px Fredoka';
       ctx.textAlign = 'center';
-      ctx.fillText('🐺', barX - 18, barY + 18);
-      ctx.fillText('🌲', barX + barW + 18, barY + 18);
 
       ctx.restore();
 
       // --- CORAZONES: vidas actuales compartidas centradas debajo de la barra ---
       drawHearts(ctx, gameState.lives, 3, V_WIDTH / 2, 56);
+      drawLogo(ctx, LOGO_SIZE_LEVEL);
     }
   };
 
@@ -3422,7 +3582,7 @@
     invulTimer: 0,
     victoryStarted: false,
     birds: [],
-    birdSpawnTimer: 2.5,
+    birdSpawnTimer: BIRD_SPAWN_MIN + Math.random() * (BIRD_SPAWN_MAX - BIRD_SPAWN_MIN),
     player: {
       x: V_WIDTH / 2,
       y: 520,
@@ -3498,7 +3658,7 @@
       this.invulTimer = 0;
       this.victoryStarted = false;
       this.birds = [];
-      this.birdSpawnTimer = 2.5;
+      this.birdSpawnTimer = BIRD_SPAWN_MIN + Math.random() * (BIRD_SPAWN_MAX - BIRD_SPAWN_MIN);
       duckInNest = true;
       this.player.x = V_WIDTH / 2;
       this.player.y = 520;
@@ -3724,61 +3884,47 @@
       if (!inSummitCrown) {
         this.birdSpawnTimer -= 1 / 60;
         if (this.birdSpawnTimer <= 0) {
-          // Dirección aleatoria: 1 (de izq a der) o -1 (de der a izq)
-          const dir = Math.random() < 0.5 ? 1 : -1;
+          const minBirdY = Math.max(this.cameraY + 45, this.nest.y + 480);
+          const maxBirdY = this.cameraY + V_HEIGHT - 45;
 
-          // Velocidad variable: lenta, media o rápida
-          const speed = BIRD_SPEED_MIN + Math.random() * (BIRD_SPEED_MAX - BIRD_SPEED_MIN);
+          if (minBirdY < maxBirdY) {
+            // Reintentar alturas/direcciones aleatorias para evitar duplicados en el mismo carril.
+            for (let attempt = 0; attempt < 8; attempt++) {
+              const dir = Math.random() < 0.5 ? 1 : -1;
+              const worldY = minBirdY + Math.random() * (maxBirdY - minBirdY);
+              const sameLane = this.birds.some(b => b.dir === dir && Math.abs(b.y - worldY) < 68);
+              if (sameLane) continue;
 
-          // Altura relativa a la cámara
-          const candidateScreenY = 120 + Math.random() * (V_HEIGHT - 240);
-          let worldY = this.cameraY + candidateScreenY;
-
-          // No pueden aparecer dos al mismo tiempo a la misma altura
-          const tooClose = this.birds.some(b => Math.abs(b.y - worldY) < 65);
-
-          // No deben cruzar sobre las ramas de forma que oculten la superficie donde se para Anika
-          for (const br of this.branches) {
-            if (Math.abs(br.y - worldY) < 22) {
-              worldY += (worldY < br.y ? -26 : 26);
+              const speed = BIRD_SPEED_MIN + Math.random() * (BIRD_SPEED_MAX - BIRD_SPEED_MIN);
+              const palettes = ['#f26419', '#38a3a5', '#f9c74f', '#e76f51', '#457b9d'];
+              const color = palettes[Math.floor(Math.random() * palettes.length)];
+              this.birds.push({
+                dir,
+                x: dir === 1 ? -42 : V_WIDTH + 42,
+                y: worldY,
+                vx: dir * speed,
+                speed,
+                active: true,
+                wingPhase: Math.random() * Math.PI * 2,
+                color,
+                hitW: 20,
+                hitH: 14
+              });
+              break;
             }
           }
 
-          if (!tooClose) {
-            const palettes = ['#f26419', '#38a3a5', '#f9c74f', '#e76f51', '#457b9d'];
-            const color = palettes[Math.floor(Math.random() * palettes.length)];
-            this.birds.push({
-              dir,
-              x: dir === 1 ? -40 : V_WIDTH + 40,
-              y: worldY,
-              vx: dir * speed,
-              speed,
-              warnTimer: BIRD_WARN_TIME,
-              active: false,
-              wingPhase: Math.random() * Math.PI * 2,
-              color,
-              hitW: 20,
-              hitH: 14
-            });
-
-            // Dificultad progresiva: pocos pájaros al principio y más frecuentes a medida que sube
-            const interval = (BIRD_SPAWN_MAX - (summitProgress * (BIRD_SPAWN_MAX - BIRD_SPAWN_MIN))) * (0.85 + Math.random() * 0.3);
-            this.birdSpawnTimer = Math.max(BIRD_SPAWN_MIN, interval);
-          } else {
-            this.birdSpawnTimer = 0.6;
-          }
+          // Cada intervalo vuelve a sortearse independientemente, haya aparecido un pájaro o no.
+          this.birdSpawnTimer = BIRD_SPAWN_MIN + Math.random() * (BIRD_SPAWN_MAX - BIRD_SPAWN_MIN);
         }
+      } else {
+        this.birds = [];
       }
 
       // Actualizar pájaros y colisiones
       for (let i = this.birds.length - 1; i >= 0; i--) {
         const b = this.birds[i];
-        if (b.warnTimer > 0) {
-          b.warnTimer -= 1 / 60;
-          if (b.warnTimer <= 0) {
-            b.active = true;
-          }
-        } else if (b.active) {
+        if (b.active) {
           b.x += b.vx;
           b.wingPhase += 0.28;
 
@@ -3938,6 +4084,61 @@
         this.nest.y + 18 - FINAL_CINEMATIC.summitBranchY);
       ctx.restore();
 
+      // Pájaros delante del fondo, pero detrás de las ramas y de la niña.
+      for (const b of this.birds) {
+        if (!b.active) continue;
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.scale(b.dir, 1);
+
+        ctx.fillStyle = '#322621';
+        ctx.beginPath();
+        ctx.moveTo(-11, -1);
+        ctx.lineTo(-19, -6);
+        ctx.lineTo(-17, 3);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 13, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#fff4e0';
+        ctx.beginPath();
+        ctx.ellipse(3, 3, 8, 5, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(8, -4, 6.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#fca311';
+        ctx.beginPath();
+        ctx.moveTo(14, -5);
+        ctx.lineTo(20, -3.5);
+        ctx.lineTo(14, -2);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#1e1c24';
+        ctx.beginPath();
+        ctx.arc(10, -5, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(10.6, -5.5, 0.7, 0, Math.PI * 2);
+        ctx.fill();
+
+        const flap = Math.sin(b.wingPhase) * 11;
+        ctx.fillStyle = '#2f2b38';
+        ctx.beginPath();
+        ctx.ellipse(-2, -3 + flap * 0.4, 8, 4.5 + Math.abs(flap) * 0.45, -0.2 + flap * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
       // Dibujar Ramas del pino
       for (const b of this.branches) {
         if (b.broken) continue;
@@ -3957,69 +4158,6 @@
       // Dibujar Nido del águila en la cúspide
       this.drawEagleNest(ctx, this.nest.x, this.nest.y, duckInNest);
 
-      // Dibujar Pájaros volando (pasan por delante del fondo y ramas, pero por detrás de la niña)
-      for (const b of this.birds) {
-        if (!b.active) continue;
-        ctx.save();
-        ctx.translate(b.x, b.y);
-        ctx.scale(b.dir, 1);
-
-        // Cola de plumas
-        ctx.fillStyle = '#322621';
-        ctx.beginPath();
-        ctx.moveTo(-11, -1);
-        ctx.lineTo(-19, -6);
-        ctx.lineTo(-17, 3);
-        ctx.closePath();
-        ctx.fill();
-
-        // Cuerpo redondeado
-        ctx.fillStyle = b.color;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, 13, 9, 0, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Pecho / panza suave
-        ctx.fillStyle = '#fff4e0';
-        ctx.beginPath();
-        ctx.ellipse(3, 3, 8, 5, 0.3, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Cabeza
-        ctx.fillStyle = b.color;
-        ctx.beginPath();
-        ctx.arc(8, -4, 6.5, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Pico tierno naranja
-        ctx.fillStyle = '#fca311';
-        ctx.beginPath();
-        ctx.moveTo(14, -5);
-        ctx.lineTo(20, -3.5);
-        ctx.lineTo(14, -2);
-        ctx.closePath();
-        ctx.fill();
-
-        // Ojo tierno con brillo
-        ctx.fillStyle = '#1e1c24';
-        ctx.beginPath();
-        ctx.arc(10, -5, 1.8, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#ffffff';
-        ctx.beginPath();
-        ctx.arc(10.6, -5.5, 0.7, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Ala animada con aleteo fluido
-        const flap = Math.sin(b.wingPhase) * 11;
-        ctx.fillStyle = '#2f2b38';
-        ctx.beginPath();
-        ctx.ellipse(-2, -3 + flap * 0.4, 8, 4.5 + Math.abs(flap) * 0.45, -0.2 + flap * 0.05, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.restore();
-      }
-
       // Dibujar Niña saltando (parpadeante si invulnerable tras reaparecer)
       const blinkVisible = isPlayerBlinkVisible(this.invulTimer);
 
@@ -4038,40 +4176,6 @@
       particles.draw(ctx, 0, this.cameraY);
 
       ctx.restore();
-
-      // Señales de aviso previo de pájaros (~0.7s antes de entrar) en los bordes de la pantalla
-      for (const b of this.birds) {
-        if (b.warnTimer > 0) {
-          const screenY = b.y - this.cameraY;
-          if (screenY > 40 && screenY < V_HEIGHT - 40) {
-            const warnX = b.dir === 1 ? 32 : V_WIDTH - 32;
-            const pulse = 1 + Math.sin(stateTime * 22) * 0.14;
-
-            ctx.save();
-            ctx.translate(warnX, screenY);
-            ctx.scale(pulse, pulse);
-
-            // Círculo de alerta brillante
-            ctx.fillStyle = 'rgba(255, 170, 30, 0.90)';
-            ctx.beginPath();
-            ctx.arc(0, 0, 18, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2.5;
-            ctx.stroke();
-
-            // Símbolo con flecha y exclamación
-            ctx.fillStyle = '#221528';
-            ctx.font = '700 15px Fredoka';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            const arrow = b.dir === 1 ? '▶!' : '!◀';
-            ctx.fillText(arrow, 0, 1);
-
-            ctx.restore();
-          }
-        }
-      }
 
       // HUD de altitud y vidas
       this.drawHUD(ctx);
@@ -4290,10 +4394,9 @@
 
       ctx.font = '22px Fredoka';
       ctx.textAlign = 'center';
-      ctx.fillText('🐣', V_WIDTH - 44, 75);
-      ctx.fillText('👧', V_WIDTH - 44, 435);
 
       ctx.restore();
+      drawLogo(ctx, LOGO_SIZE_LEVEL);
     }
   };
 
@@ -4729,7 +4832,7 @@
 
       // Botón SALTAR CINEMÁTICA
       const btnSkipHover = isMouseInBox(V_WIDTH - 120, V_HEIGHT - 42, 180, 42);
-      drawButton(ctx, V_WIDTH - 120, V_HEIGHT - 42, 180, 42, 'SALTAR ▶', btnSkipHover);
+      drawButton(ctx, V_WIDTH - 120, V_HEIGHT - 42, 180, 42, 'SALTAR', btnSkipHover);
       if (mouse.clicked && btnSkipHover) {
         mouse.clicked = false;
         audio.sfxClick();
@@ -4777,7 +4880,7 @@
 
     // Botón para volver al inicio
     const btnHover = isMouseInBox(V_WIDTH / 2, V_HEIGHT / 2 + 145, 280, 54);
-    drawButton(ctx, 0, 145, 280, 54, 'VOLVER AL INICIO', btnHover, '🏠');
+    drawButton(ctx, 0, 145, 280, 54, 'VOLVER AL INICIO', btnHover);
 
     if (mouse.clicked && btnHover) {
       mouse.clicked = false;
@@ -4825,6 +4928,10 @@
       hasDuck: true
     });
 
+    // Créditos y logo en la capa de interfaz, antes del título y de los botones.
+    drawCredits(ctx);
+    drawLogo(ctx, LOGO_SIZE_LEVEL);
+
     // Título estilizado estilo libro de cuentos
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
@@ -4843,7 +4950,7 @@
 
     // 1. Botón INICIAR (Comienza la historia desde la cinemática inicial)
     const btnPlayHover = isMouseInBox(V_WIDTH / 2 + 80, 285, 260, 52);
-    drawButton(ctx, V_WIDTH / 2 + 80, 285, 260, 52, 'INICIO', btnPlayHover, '▶');
+    drawButton(ctx, V_WIDTH / 2 + 80, 285, 260, 52, 'INICIO', btnPlayHover);
     if (mouse.clicked && btnPlayHover) {
       mouse.clicked = false;
       audio.sfxClick();
@@ -4855,7 +4962,7 @@
 
     // 2. Botón NIVELES (Selector de niveles directo)
     const btnLevelsHover = isMouseInBox(V_WIDTH / 2 + 80, 350, 260, 52);
-    drawButton(ctx, V_WIDTH / 2 + 80, 350, 260, 52, 'NIVELES', btnLevelsHover, '⭐');
+    drawButton(ctx, V_WIDTH / 2 + 80, 350, 260, 52, 'NIVELES', btnLevelsHover);
     if (mouse.clicked && btnLevelsHover) {
       mouse.clicked = false;
       audio.sfxClick();
@@ -4865,7 +4972,7 @@
 
     // 3. Botón CRÉDITOS
     const btnCredHover = isMouseInBox(V_WIDTH / 2 + 80, 415, 260, 52);
-    drawButton(ctx, V_WIDTH / 2 + 80, 415, 260, 52, 'CRÉDITOS', btnCredHover, '📜');
+    drawButton(ctx, V_WIDTH / 2 + 80, 415, 260, 52, 'CRÉDITOS', btnCredHover);
     if (mouse.clicked && btnCredHover) {
       mouse.clicked = false;
       audio.sfxClick();
@@ -4909,9 +5016,9 @@
 
     // 3 Tarjetas grandes y redondeadas con los números 1, 2 y 3
     const levelsData = [
-      { id: 1, name: 'El Lago', icon: '💧', desc: 'Cruza las piedras', state: STATE.LEVEL1, init: () => level1.init() },
-      { id: 2, name: 'El Lobo', icon: '🐺', desc: 'Salta los troncos', state: STATE.LEVEL2, init: () => level2.init() },
-      { id: 3, name: 'El Gran Pino', icon: '🌲', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
+      { id: 1, name: 'El Lago', desc: 'Cruza las piedras', state: STATE.LEVEL1, init: () => level1.init() },
+      { id: 2, name: 'El Lobo', desc: 'Salta los troncos', state: STATE.LEVEL2, init: () => level2.init() },
+      { id: 3, name: 'El Gran Pino', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
     ];
 
     const cardW = 200;
@@ -4955,10 +5062,6 @@
       ctx.font = '700 22px Fredoka';
       ctx.fillText(lvl.name, 0, 18);
 
-      // Icono
-      ctx.font = '24px Fredoka';
-      ctx.fillText(lvl.icon, 0, 50);
-
       // Subtítulo
       ctx.fillStyle = '#dcd2ea';
       ctx.font = '500 16px Fredoka';
@@ -4978,7 +5081,7 @@
 
     // Botón VOLVER al menú principal
     const btnBackHover = isMouseInBox(V_WIDTH / 2, V_HEIGHT / 2 + 175, 220, 50);
-    drawButton(ctx, 0, 175, 220, 50, 'VOLVER', btnBackHover, '↩');
+    drawButton(ctx, 0, 175, 220, 50, 'VOLVER', btnBackHover);
     if (mouse.clicked && btnBackHover) {
       mouse.clicked = false;
       audio.sfxClick();
@@ -4994,47 +5097,201 @@
     drawMountains(ctx, 0);
     updateAndDrawAmbientLeaves(ctx);
 
+    const rect = canvas.getBoundingClientRect();
+    const uiScale = rect.width > 0 ? V_WIDTH / rect.width : 1;
+    const fitScale = Math.min(1, Math.max(0.4, ((rect.height || V_HEIGHT) - 24) / 320));
+    const unit = uiScale * fitScale;
+    const margin = 16 * uiScale;
+    const panelW = Math.min(760 * fitScale, V_WIDTH * 0.9, V_WIDTH - margin * 2);
+    const padding = 17 * unit;
+    const contentW = panelW - padding * 2;
+    const centerX = V_WIDTH / 2;
+    const contentX = centerX - contentW / 2;
+    const titleSize = 27 * unit;
+    const bodySize = 14.5 * unit;
+    const smallSize = 11 * unit;
+    const titleH = 31 * unit;
+    const lineH = 18 * unit;
+    const detailGap = 3 * unit;
+    const details = [
+      ['Integrantes:', 'Zartarian Rocio y Maldonado Paula'],
+      ['Curso:', '7mo Programación'],
+      ['Escuela:', 'Instituto Técnico La Falda']
+    ];
+
+    // Precalcular líneas con measureText para que etiquetas y datos nunca excedan el panel.
+    const makeRichLines = (label, value) => {
+      const lines = [[]];
+      let x = 0;
+      const tokens = [
+        ...label.trim().split(/\s+/).map(text => ({ text, bold: true })),
+        { text: ' ', bold: false },
+        ...value.split(/\s+/).map(text => ({ text, bold: false }))
+      ];
+      tokens.forEach((token, index) => {
+        if (!token.text) return;
+        const spacedText = token.text === ' ' ? ' ' : `${token.text}${index < tokens.length - 1 ? ' ' : ''}`;
+        ctx.font = `${token.bold ? '700' : '500'} ${bodySize}px Fredoka, Quicksand, sans-serif`;
+        let wordW = ctx.measureText(spacedText).width;
+        if (x > 0 && x + wordW > contentW) {
+          lines.push([]);
+          x = 0;
+          if (token.text === ' ') return;
+          wordW = ctx.measureText(token.text).width;
+          lines[lines.length - 1].push({ text: token.text, x, bold: token.bold });
+          x += wordW;
+          return;
+        }
+        lines[lines.length - 1].push({ text: spacedText, x, bold: token.bold });
+        x += wordW;
+      });
+      return lines;
+    };
+    const detailLines = details.map(([label, value]) => makeRichLines(label, value));
+
+    const controls = [
+      ['←  →  /  A  D', 'Moverse'],
+      ['ESPACIO  /  ↑', 'Saltar'],
+      ['↓  /  S', 'Agacharse'],
+      ['ESC  /  P', 'Pausa']
+    ];
+    const copyright = '© 2026 Zartarian Rocio y Maldonado Paula – Instituto Técnico La Falda. Todos los derechos reservados.';
+    const copyFont = `500 ${smallSize}px Fredoka, Quicksand, sans-serif`;
+    ctx.font = copyFont;
+    const copyrightLines = [];
+    let copyLine = '';
+    for (const word of copyright.split(/\s+/)) {
+      const candidate = copyLine ? `${copyLine} ${word}` : word;
+      if (copyLine && ctx.measureText(candidate).width > contentW) {
+        copyrightLines.push(copyLine);
+        copyLine = word;
+      } else {
+        copyLine = candidate;
+      }
+    }
+    if (copyLine) copyrightLines.push(copyLine);
+
+    const controlCellW = (contentW - 10 * unit) / 2;
+    const controlRowH = 23 * unit;
+    const controlsGridH = 2 * controlRowH;
+    const copyrightLineH = 13 * unit;
+    const sectionGap = 8 * unit;
+    const buttonH = 40 * unit;
+    let cursor = padding;
+    const titleY = cursor;
+    cursor += titleH + sectionGap;
+    const detailYs = [];
+    detailLines.forEach(lines => {
+      detailYs.push(cursor);
+      cursor += lines.length * lineH + detailGap;
+    });
+    cursor += 4 * unit;
+    const controlsTitleY = cursor;
+    cursor += 18 * unit + 4 * unit;
+    const controlsY = cursor;
+    cursor += controlsGridH + sectionGap;
+    const separatorY = cursor;
+    cursor += 1 * unit + sectionGap;
+    const copyrightY = cursor;
+    cursor += copyrightLines.length * copyrightLineH + sectionGap;
+    const buttonYInPanel = cursor;
+    cursor += buttonH + padding;
+
+    const panelH = Math.min(cursor, V_HEIGHT - margin * 2);
+    const panelX = centerX - panelW / 2;
+    const panelY = (V_HEIGHT - panelH) / 2;
+    const contentTop = panelY;
+
+    // Panel pastel compacto, con borde suave y sombra sutil.
     ctx.save();
-    ctx.translate(V_WIDTH / 2, V_HEIGHT / 2);
-
-    // Cuadro de pergamino
-    ctx.fillStyle = 'rgba(30, 25, 38, 0.85)';
+    ctx.shadowColor = 'rgba(55, 39, 27, 0.22)';
+    ctx.shadowBlur = 12 * unit;
+    ctx.shadowOffsetY = 3 * unit;
+    ctx.fillStyle = 'rgba(255, 246, 224, 0.96)';
     ctx.beginPath();
-    ctx.roundRect(-320, -220, 640, 440, 24);
+    ctx.roundRect(panelX, panelY, panelW, panelH, 20 * unit);
     ctx.fill();
-
-    ctx.strokeStyle = '#ffd166';
-    ctx.lineWidth = 3.5;
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = 'rgba(149, 103, 62, 0.72)';
+    ctx.lineWidth = 2 * unit;
     ctx.stroke();
 
-    ctx.fillStyle = '#ffd166';
-    ctx.font = '700 40px Fredoka';
+    ctx.textBaseline = 'top';
     ctx.textAlign = 'center';
-    ctx.fillText('CRÉDITOS', 0, -150);
+    ctx.fillStyle = '#65452f';
+    ctx.font = `700 ${titleSize}px Fredoka, Quicksand, sans-serif`;
+    ctx.fillText('CRÉDITOS', centerX, contentTop + titleY);
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '500 20px Fredoka';
-    ctx.fillText('Inspirado en el clásico de aventuras "Anika\'s Odyssey"', 0, -90);
-    ctx.fillText('Desarrollado con HTML5, Canvas y Web Audio API sin librerías externas.', 0, -50);
+    ctx.fillStyle = '#49382e';
+    detailLines.forEach((lines, detailIndex) => {
+      lines.forEach((line, lineIndex) => {
+        for (const segment of line) {
+          ctx.font = `${segment.bold ? '700' : '500'} ${bodySize}px Fredoka, Quicksand, sans-serif`;
+          ctx.textAlign = 'left';
+          ctx.fillText(segment.text, contentX + segment.x, contentTop + detailYs[detailIndex] + lineIndex * lineH);
+        }
+      });
+    });
 
-    ctx.fillStyle = '#ffbe55';
-    ctx.fillText('CONTROLES:', 0, 5);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '400 18px Fredoka';
-    ctx.fillText('Moverse: Flechas Izquierda/Derecha o A / D', 0, 38);
-    ctx.fillText('Saltar: Barra Espaciadora o Flecha Arriba / W', 0, 68);
-    ctx.fillText('Móvil: Controles táctiles en pantalla', 0, 98);
+    ctx.fillStyle = '#80552f';
+    ctx.font = `700 ${bodySize}px Fredoka, Quicksand, sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.fillText('CONTROLES', contentX, contentTop + controlsTitleY);
 
-    // Botón Volver
-    const btnBackHover = isMouseInBox(V_WIDTH / 2, V_HEIGHT / 2 + 160, 220, 52);
-    drawButton(ctx, 0, 160, 220, 52, 'VOLVER', btnBackHover, '◀');
+    const keyFontSize = 11 * unit;
+    const keyH = 17 * unit;
+    controls.forEach(([key, action], index) => {
+      const col = index % 2;
+      const row = Math.floor(index / 2);
+      const cellX = contentX + col * (controlCellW + 10 * unit);
+      const keyW = Math.min(100 * unit, controlCellW * 0.60);
+      const rowY = contentTop + controlsY + row * controlRowH;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
+      ctx.beginPath();
+      ctx.roundRect(cellX, rowY + (controlRowH - keyH) / 2, keyW, keyH, 4 * unit);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(133, 100, 72, 0.42)';
+      ctx.lineWidth = 0.8 * unit;
+      ctx.stroke();
+      ctx.fillStyle = '#594638';
+      ctx.font = `600 ${keyFontSize}px Fredoka, Quicksand, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(key, cellX + keyW / 2, rowY + controlRowH / 2);
+      ctx.fillStyle = '#49382e';
+      ctx.font = `500 ${12.5 * unit}px Fredoka, Quicksand, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText(action, cellX + keyW + 6 * unit, rowY + controlRowH / 2);
+    });
+
+    ctx.strokeStyle = 'rgba(133, 100, 72, 0.35)';
+    ctx.lineWidth = 1 * unit;
+    ctx.beginPath();
+    ctx.moveTo(contentX, contentTop + separatorY);
+    ctx.lineTo(contentX + contentW, contentTop + separatorY);
+    ctx.stroke();
+
+    ctx.fillStyle = '#806f5e';
+    ctx.font = copyFont;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    copyrightLines.forEach((line, index) => {
+      ctx.fillText(line, centerX, contentTop + copyrightY + index * copyrightLineH);
+    });
+    ctx.restore();
+
+    const buttonW = Math.min(190 * unit, contentW * 0.55);
+    const buttonX = centerX;
+    const buttonY = panelY + buttonYInPanel + buttonH / 2;
+    const btnBackHover = isMouseInBox(buttonX, buttonY, buttonW, buttonH);
+    drawButton(ctx, buttonX, buttonY, buttonW, buttonH, 'VOLVER', btnBackHover);
     if (mouse.clicked && btnBackHover) {
       mouse.clicked = false;
       audio.sfxClick();
       switchState(STATE.MENU);
     }
-
-    ctx.restore();
   }
 
   // ==========================================
