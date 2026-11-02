@@ -182,6 +182,7 @@
     </div>
   </div>
 
+  <script src="game/goblin-quiz.js"></script>
   <script>
   /**
    * EL VIAJE DE ANIKA (Inspirado en Anika's Odyssey)
@@ -302,6 +303,7 @@
     CINE1: 'CINE1',
     LEVEL1: 'LEVEL1',
     LEVEL2: 'LEVEL2',
+    GOBLIN_QUIZ: 'GOBLIN_QUIZ',
     LEVEL3: 'LEVEL3',
     CINE_FINAL: 'CINE_FINAL',
     VICTORY: 'VICTORY'
@@ -423,8 +425,8 @@
   let isPaused = false;
 
   function togglePause() {
-    // Solo permitir pausar durante los 3 niveles
-    if (currentState !== STATE.LEVEL1 && currentState !== STATE.LEVEL2 && currentState !== STATE.LEVEL3) {
+    // Pausa habilitada durante los niveles de juego y el desafío del duende.
+    if (currentState !== STATE.LEVEL1 && currentState !== STATE.LEVEL2 && currentState !== STATE.GOBLIN_QUIZ && currentState !== STATE.LEVEL3) {
       return;
     }
     isPaused = !isPaused;
@@ -832,9 +834,14 @@
       return;
     }
 
-    // Pausa con tecla P o Escape en los niveles 1, 2 y 3
-    if (e.code === 'KeyP' || (e.code === 'Escape' && (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.LEVEL3))) {
+    // Pausa con tecla P o Escape durante los niveles y el desafío.
+    if (e.code === 'KeyP' || (e.code === 'Escape' && (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.LEVEL3))) {
       togglePause();
+      return;
+    }
+
+    if (currentState === STATE.GOBLIN_QUIZ && !isPaused && goblinQuiz.handleKey(e)) {
+      e.preventDefault();
       return;
     }
 
@@ -3202,7 +3209,7 @@
       // Meta: Llegar al Gran Pino
       if (this.distance >= this.targetDistance) {
         audio.sfxVictory();
-        switchState(STATE.LEVEL3);
+        switchState(STATE.GOBLIN_QUIZ);
       }
     },
 
@@ -4359,7 +4366,7 @@
 
     drawHUD(ctx) {
       // 1. Esquina superior izquierda: tarjeta de objetivo autoajustable al texto (maxW = 340)
-      drawInstructionBox(ctx, 'Nivel 3: ¡Salta por las ramas del Gran Pino hasta el nido!', 24, 20, 340);
+      drawInstructionBox(ctx, 'Nivel 4: ¡Salta por las ramas del Gran Pino hasta el nido!', 24, 20, 340);
 
       ctx.save();
       ctx.fillStyle = 'rgba(28, 22, 36, 0.58)';
@@ -4982,7 +4989,7 @@
   }
 
   // ==========================================
-  // PANTALLA: SELECTOR DE NIVELES (1, 2 y 3)
+  // PANTALLA: SELECTOR DE NIVELES (1, 2, 3 y 4)
   // ==========================================
   function drawLevelSelectScreen(ctx) {
     drawSky(ctx, 'day');
@@ -4993,7 +5000,7 @@
     ctx.translate(V_WIDTH / 2, V_HEIGHT / 2);
 
     // Marco estilo libro de cuentos
-    const modalW = 760;
+    const modalW = 1100;
     const modalH = 460;
     ctx.fillStyle = 'rgba(28, 22, 36, 0.92)';
     ctx.beginPath();
@@ -5014,17 +5021,18 @@
     ctx.font = '500 20px Fredoka';
     ctx.fillText('Elige una aventura para jugar con vidas completas:', 0, -125);
 
-    // 3 Tarjetas grandes y redondeadas con los números 1, 2 y 3
+    // Cuatro tarjetas para las aventuras disponibles.
     const levelsData = [
       { id: 1, name: 'El Lago', desc: 'Cruza las piedras', state: STATE.LEVEL1, init: () => level1.init() },
       { id: 2, name: 'El Lobo', desc: 'Salta los troncos', state: STATE.LEVEL2, init: () => level2.init() },
-      { id: 3, name: 'El Gran Pino', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
+      { id: 3, name: 'El Duende', desc: 'Resuelve sus preguntas', state: STATE.GOBLIN_QUIZ, init: () => goblinQuiz.init() },
+      { id: 4, name: 'El Gran Pino', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
     ];
 
     const cardW = 200;
     const cardH = 210;
-    const startX = -230;
-    const spacingX = 230;
+    const startX = -360;
+    const spacingX = 240;
     const cardY = 5;
 
     levelsData.forEach((lvl, idx) => {
@@ -5295,6 +5303,27 @@
   }
 
   // ==========================================
+  const goblinQuiz = window.createGoblinQuiz({
+    canvas,
+    context: ctx,
+    width: V_WIDTH,
+    height: V_HEIGHT,
+    states: STATE,
+    switchState,
+    mouse,
+    gameState,
+    audio,
+    isPaused: () => isPaused,
+    drawGirl,
+    drawLogo,
+    logoSize: LOGO_SIZE_LEVEL,
+    drawSky,
+    drawParallaxMountains,
+    drawStoryTree,
+    drawPineTree,
+    isMouseInBox
+  });
+
   // 13. BUCLE PRINCIPAL DE JUEGO (GAME LOOP)
   // ==========================================
   let lastTime = performance.now();
@@ -5304,8 +5333,9 @@
     lastTime = now;
 
     // Actualizar visibilidad del botón de pausa (solo en los niveles 1, 2 y 3)
-    const canPause = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.LEVEL3);
+    const canPause = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.LEVEL3);
     pauseToggleBtn.style.display = canPause ? 'flex' : 'none';
+    if (isTouchDevice) touchControlsElem.style.display = currentState === STATE.GOBLIN_QUIZ ? 'none' : 'flex';
 
     // Si NO está en pausa, actualizar tiempo, música y física
     if (!isPaused) {
@@ -5318,6 +5348,8 @@
         audio.setMusicTrack('LAKE');
       } else if (currentState === STATE.LEVEL2) {
         audio.setMusicTrack('WOLF');
+      } else if (currentState === STATE.GOBLIN_QUIZ) {
+        audio.setMusicTrack('MENU');
       } else if (currentState === STATE.LEVEL3) {
         audio.setMusicTrack('PINE');
       } else if (currentState === STATE.CINE_FINAL || currentState === STATE.VICTORY) {
@@ -5329,6 +5361,7 @@
         if (currentState === STATE.CINE1) cine1.update();
         else if (currentState === STATE.LEVEL1) level1.update();
         else if (currentState === STATE.LEVEL2) level2.update();
+        else if (currentState === STATE.GOBLIN_QUIZ) goblinQuiz.update(dt);
         else if (currentState === STATE.LEVEL3) level3.update();
         else if (currentState === STATE.CINE_FINAL) cineFinal.update();
       }
@@ -5344,6 +5377,7 @@
       [STATE.CINE1]: '#78c6e8',
       [STATE.LEVEL1]: '#78c6e8',
       [STATE.LEVEL2]: '#78c6e8',  // Nivel 2 ahora usa fondo de día
+      [STATE.GOBLIN_QUIZ]: '#78c6e8',
       [STATE.LEVEL3]: '#0e1124',
       [STATE.CINE_FINAL]: '#533b68',
       [STATE.VICTORY]: '#533b68'
@@ -5358,6 +5392,7 @@
     else if (currentState === STATE.CINE1) cine1.draw(ctx);
     else if (currentState === STATE.LEVEL1) level1.draw(ctx);
     else if (currentState === STATE.LEVEL2) level2.draw(ctx);
+    else if (currentState === STATE.GOBLIN_QUIZ) goblinQuiz.draw(ctx);
     else if (currentState === STATE.LEVEL3) level3.draw(ctx);
     else if (currentState === STATE.CINE_FINAL) cineFinal.draw(ctx);
     else if (currentState === STATE.VICTORY) drawVictoryScreen(ctx);
@@ -5386,6 +5421,8 @@
             } else if (currentState === STATE.LEVEL2) {
               gameState.startLevel();
               level2.init();
+            } else if (currentState === STATE.GOBLIN_QUIZ) {
+              goblinQuiz.init();
             } else if (currentState === STATE.LEVEL3) {
               gameState.startLevel();
               level3.init();
