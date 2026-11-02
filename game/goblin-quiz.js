@@ -22,8 +22,7 @@
     difficulties: {
       facil: { questions: 6, errorsToLose: 4, extraAtCorrect: 3, hasExtra: true, winsAtCorrect: 4 },
       medio: { questions: 5, errorsToLose: 3, extraAtCorrect: null, hasExtra: false, winsAtCorrect: 3 },
-      dificil: { questions: 4, errorsToLose: 3, extraAtCorrect: 2, hasExtra: true, winsAtCorrect: 3 },
-      imposible: { questions: 1, errorsToLose: 1, extraAtCorrect: null, hasExtra: false, winsAtCorrect: 1, showCorrectAnswer: false }
+      dificil: { questions: 4, errorsToLose: 3, extraAtCorrect: 2, hasExtra: true, winsAtCorrect: 3 }
     }
   };
 
@@ -281,14 +280,6 @@
       question('Ciencia', '¿Qué tipo de cuerpo celeste es el Sol?', ['Una estrella', 'Un planeta', 'Un satélite natural', 'Un cometa'], 0, 'dificil'),
       question('Matemática', '¿Qué valor de x satisface la ecuación 3x - 7 = 2x + 5?', ['12', '10', '14', '6'], 0, 'dificil')
     ],
-    imposible: [
-      question('Literatura', 'En la Divina Comedia, ¿quiénes son los tres traidores que Lucifer mastica en la Judeca?', ['Judas Iscariote, Bruto y Casio', 'Judas Iscariote, Pilato y Nerón', 'Bruto, Casio y Catilina', 'Caín, Judas Iscariote y Bruto'], 0, 'imposible'),
-      question('Historia', '¿En qué batalla naval del año 480 a. C. vencieron los atenienses y sus aliados a la flota de Jerjes I?', ['La batalla de Salamina', 'La batalla de Artemisio', 'La batalla de Mícala', 'La batalla de Egospótamos'], 0, 'imposible'),
-      question('Ciencia', '¿Qué matemático francés del siglo XVII formuló el principio de tiempo mínimo para la trayectoria de la luz?', ['Pierre de Fermat', 'René Descartes', 'Christiaan Huygens', 'Blaise Pascal'], 0, 'imposible'),
-      question('Matemática', 'En la sucesión 2, 6, 12, 20, 30, ¿cuál es el sexto término?', ['42', '40', '44', '36'], 0, 'imposible'),
-      question('Geografía', '¿Cuál de estos países está rodeado únicamente por países sin litoral?', ['Uzbekistán', 'Mongolia', 'Afganistán', 'Nepal'], 0, 'imposible'),
-      question('Matemática', '¿Cómo se llama un polígono de once lados?', ['Hendecágono', 'Decágono', 'Dodecágono', 'Eneágono'], 0, 'imposible')
-    ],
     extraFacil: [
       question('Matemática', '¿Cuánto es la mitad de 18?', ['9', '8', '10', '12'], 0, 'facil'),
       question('Geografía', '¿Cuál es la capital de Italia?', ['Roma', 'Milán', 'Nápoles', 'Venecia'], 0, 'facil'),
@@ -318,16 +309,13 @@
   const DIFFICULTY_OPTIONS = [
     { key: 'facil', title: 'FÁCIL', description: '6 preguntas; puedes fallar hasta 3.' },
     { key: 'medio', title: 'MEDIO', description: '5 preguntas; pierdes al tercer error.' },
-    { key: 'dificil', title: 'DIFÍCIL', description: '4 preguntas; una extra si empatas.' },
-    { key: 'imposible', title: 'IMPOSIBLE', description: '1 pregunta, 1 oportunidad.' }
+    { key: 'dificil', title: 'DIFÍCIL', description: '4 preguntas; una extra si empatas.' }
   ];
   const INTRO_TEXT = 'Alto ahí, pequeña. Nadie trepa este pino sin demostrar su ingenio. Responde mis preguntas y te dejaré pasar. ¿Qué nivel de desafío eliges?';
   const EXTRA_EASY_TEXT = 'Empatados... Te haré una última pregunta';
   const EXTRA_HARD_TEXT = 'Esta es la última y la más difícil';
-  const IMPOSSIBLE_WARNING = 'Solo tendrás una oportunidad. Si fallas, perderás. Piénsalo bien';
   const WIN_TEXT = 'Has demostrado tu ingenio. El pino es todo tuyo';
   const LOSE_TEXT = 'Aún te falta estudiar un poco. Inténtalo de nuevo';
-  const IMPOSSIBLE_LOSE_TEXT = 'Ese era un desafío imposible. Inténtalo de nuevo';
   const memoryQuestionHistory = {};
   const memoryLastAttempt = {};
 
@@ -413,7 +401,7 @@
   }
 
   function validateQuestionBank() {
-    const pools = [QUESTION_BANK.facil, QUESTION_BANK.medio, QUESTION_BANK.dificil, QUESTION_BANK.imposible, QUESTION_BANK.extraFacil, QUESTION_BANK.extraDificil];
+    const pools = [QUESTION_BANK.facil, QUESTION_BANK.medio, QUESTION_BANK.dificil, QUESTION_BANK.extraFacil, QUESTION_BANK.extraDificil];
     const ids = new Set();
     for (const pool of pools) {
       const prompts = new Set();
@@ -427,7 +415,6 @@
       }
     }
     if (QUESTION_BANK.facil.length < 66 || QUESTION_BANK.medio.length < 57 || QUESTION_BANK.dificil.length < 45 ||
-      QUESTION_BANK.imposible.length < 6 ||
         QUESTION_BANK.extraFacil.length < 10 || QUESTION_BANK.extraDificil.length < 10) {
       throw new Error('El banco de preguntas no alcanza las cantidades mínimas.');
     }
@@ -770,8 +757,6 @@
         substate = 'difficulty';
       } else if (nextState === 'extraNotice') {
         beginExtraQuestion();
-      } else if (nextState === 'impossibleNotice') {
-        createSession('imposible');
       } else if (nextState === 'victory') {
         substate = 'victoryExit';
         elapsed = 0;
@@ -852,9 +837,7 @@
       } else {
         errorCount++;
         reaction = 'sad';
-        feedbackText = GOBLIN_QUIZ_CONFIG.difficulties[difficulty].showCorrectAnswer === false
-          ? IMPOSSIBLE_LOSE_TEXT
-          : `Casi, la respuesta era ${currentQuestion.opciones[currentQuestion.correcta]}.`;
+        feedbackText = `Casi, la respuesta era ${currentQuestion.opciones[currentQuestion.correcta]}.`;
         dependencies.audio.playTone(390, 'sine', 0.2, -75, 0.1);
       }
       if (extraMode) {
@@ -958,7 +941,7 @@
 
     function update(deltaTime) {
       elapsed += deltaTime;
-      if ((substate === 'intro' || substate === 'extraNotice' || substate === 'impossibleNotice' || substate === 'victory' || substate === 'defeatDialog') &&
+      if ((substate === 'intro' || substate === 'extraNotice' || substate === 'victory' || substate === 'defeatDialog') &&
           elapsed >= dialogueDuration(dialogueText)) {
         advanceDialogue();
       } else if (substate === 'feedback') {
@@ -1048,8 +1031,7 @@
       if (interactionsEnabled && dependencies.mouse.clicked && hover) {
         dependencies.mouse.clicked = false;
         dependencies.audio.sfxClick();
-        if (option.key === 'imposible') beginDialogue(IMPOSSIBLE_WARNING, 'impossibleNotice');
-        else createSession(option.key);
+        createSession(option.key);
       }
     }
 
@@ -1093,11 +1075,7 @@
       let fill = hover ? '#f6dfb1' : '#fffaf0';
       let border = '#bd9365';
       if (substate === 'feedback') {
-        const impossibleWrongAnswer = GOBLIN_QUIZ_CONFIG.difficulties[difficulty].showCorrectAnswer === false && feedbackText !== '¡Muy bien!';
-        if (index === selectedOption && impossibleWrongAnswer) {
-          fill = '#f0c1b6';
-          border = '#ba7163';
-        } else if (index === currentQuestion.correcta && !impossibleWrongAnswer) {
+        if (index === currentQuestion.correcta) {
           fill = '#cce6bd';
           border = '#6f9c5e';
         } else if (index === selectedOption) {
@@ -1466,8 +1444,6 @@
         drawQuestion(ctx);
       } else if (substate === 'extraNotice') {
         drawDialoguePanel(ctx, dialogueText, 44, 850, true);
-      } else if (substate === 'impossibleNotice') {
-        drawDialoguePanel(ctx, dialogueText, 44, 850, true);
       } else if (substate === 'victory') {
         drawCelebration(ctx);
         drawDialoguePanel(ctx, dialogueText, 34, 850, true);
@@ -1494,7 +1470,7 @@
         startPineTransition();
         return true;
       }
-      if (substate === 'intro' || substate === 'extraNotice' || substate === 'impossibleNotice' || substate === 'victory' || substate === 'defeatDialog') {
+      if (substate === 'intro' || substate === 'extraNotice' || substate === 'victory' || substate === 'defeatDialog') {
         if (event.code === 'Enter' || event.code === 'Space') {
           advanceDialogue();
           return true;
@@ -1505,7 +1481,6 @@
         if (event.code === 'Digit1' || event.code === 'Numpad1') createSession('facil');
         else if (event.code === 'Digit2' || event.code === 'Numpad2') createSession('medio');
         else if (event.code === 'Digit3' || event.code === 'Numpad3') createSession('dificil');
-        else if (event.code === 'Digit4' || event.code === 'Numpad4') beginDialogue(IMPOSSIBLE_WARNING, 'impossibleNotice');
         else return false;
         dependencies.audio.sfxClick();
         return true;
