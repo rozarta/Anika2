@@ -865,7 +865,7 @@
       return;
     }
 
-    if (currentState === STATE.GOBLIN_QUIZ && !isPaused && goblinQuiz.handleKey(e)) {
+    if (currentState === STATE.GOBLIN_QUIZ && goblinQuiz.handleKey(e)) {
       e.preventDefault();
       return;
     }
@@ -5339,6 +5339,11 @@
     gameState,
     audio,
     isPaused: () => isPaused,
+    cancelTransition: () => {
+      pendingNextState = null;
+      transitionAlpha = 0;
+      transitionBlackHold = 0;
+    },
     drawGirl,
     drawLogo,
     logoSize: LOGO_SIZE_LEVEL,

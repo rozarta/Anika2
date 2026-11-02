@@ -2,6 +2,15 @@
   const GIRL_HEIGHT = 60;
   const DUENDE_HEIGHT = GIRL_HEIGHT;
   const CAMERA_ZOOM = 1.65;
+  const GOBLIN_RESTART_KEY = 'd';
+  const GOBLIN_WALK_SPEED = 118;
+  const GOBLIN_FADE_OUT_TIME = 1;
+  const GOBLIN_BLACK_HOLD_TIME = 0.5;
+  const GOBLIN_STOP_DISTANCE = 54;
+  const GOBLIN_STOP_PAUSE_TIME = 0.3;
+  const GOBLIN_INITIAL_GIRL_X = 400;
+  const GOBLIN_TRUNK_ROOT_X = 826;
+  const GOBLIN_WALK_TARGET_X = GOBLIN_TRUNK_ROOT_X - GOBLIN_STOP_DISTANCE / CAMERA_ZOOM - 16;
   const DIALOGUE_MIN_TIME = 3.5;
   const DIALOGUE_SECONDS_PER_CHARACTER = 0.06;
   const GOBLIN_QUIZ_CONFIG = {
@@ -13,19 +22,23 @@
     difficulties: {
       facil: { questions: 6, errorsToLose: 4, extraAtCorrect: 3, hasExtra: true, winsAtCorrect: 4 },
       medio: { questions: 5, errorsToLose: 3, extraAtCorrect: null, hasExtra: false, winsAtCorrect: 3 },
-      dificil: { questions: 4, errorsToLose: 3, extraAtCorrect: 2, hasExtra: true, winsAtCorrect: 3 }
+      dificil: { questions: 4, errorsToLose: 3, extraAtCorrect: 2, hasExtra: true, winsAtCorrect: 3 },
+      imposible: { questions: 1, errorsToLose: 1, extraAtCorrect: null, hasExtra: false, winsAtCorrect: 1, showCorrectAnswer: false }
     }
   };
 
-  let questionSequence = 0;
-  const question = (categoria, pregunta, opciones, correcta, nivel) => ({
-    id: `${nivel}-${++questionSequence}`,
-    categoria,
-    pregunta,
-    opciones,
-    correcta,
-    nivel
-  });
+  const questionIdOccurrences = new Map();
+  const question = (categoria, pregunta, opciones, correcta, nivel) => {
+    let hash = 2166136261;
+    for (const character of `${nivel}:${pregunta}`) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    const baseId = `${nivel}-${(hash >>> 0).toString(36)}`;
+    const occurrence = questionIdOccurrences.get(baseId) || 0;
+    questionIdOccurrences.set(baseId, occurrence + 1);
+    return { id: `${baseId}-${occurrence}`, categoria, pregunta, opciones, correcta, nivel };
+  };
   const QUESTION_BANK = {
     facil: [
       question('Matemática', '¿Cuánto es 9 + 6?', ['15', '14', '16', '13'], 0, 'facil'),
@@ -87,7 +100,13 @@
       question('Naturaleza', '¿Qué parte de la planta absorbe agua del suelo?', ['Raíz', 'Flor', 'Fruto', 'Semilla'], 0, 'facil'),
       question('Naturaleza', '¿Cuál de estos cítricos suele tener pulpa anaranjada?', ['Naranja', 'Limón', 'Lima', 'Pomelo verde'], 0, 'facil'),
       question('Naturaleza', '¿Qué estación suele seguir al invierno?', ['Primavera', 'Otoño', 'Verano', 'Monzón'], 0, 'facil'),
-      question('Naturaleza', '¿Qué animal es conocido por cambiar de color para camuflarse?', ['Camaleón', 'Caballo', 'Pingüino', 'Delfín'], 0, 'facil')
+      question('Naturaleza', '¿Qué animal es conocido por cambiar de color para camuflarse?', ['Camaleón', 'Caballo', 'Pingüino', 'Delfín'], 0, 'facil'),
+      question('Cultura pop', 'Los padres de Héctor tienen cuatro hijos: Luis, Juan, Víctor y... ¿Cómo se llama el cuarto?', ['Héctor', 'Pedro', 'Carlos', 'Miguel'], 0, 'facil'),
+      question('Ciencia', '¿Cuál es el órgano más grande del cuerpo humano?', ['La piel', 'El hígado', 'El cerebro', 'El intestino delgado'], 0, 'facil'),
+      question('Geografía', '¿Cuál es considerado el río más largo del mundo?', ['El río Amazonas', 'El río Misisipi', 'El río Danubio', 'El río Yangtsé'], 0, 'facil'),
+      question('Literatura', '¿Quién escribió la tragedia Romeo y Julieta?', ['William Shakespeare', 'Christopher Marlowe', 'Ben Jonson', 'John Webster'], 0, 'facil'),
+      question('Geografía', '¿Cuál es el país más grande del mundo por superficie?', ['Rusia', 'Canadá', 'China', 'Estados Unidos'], 0, 'facil'),
+      question('Mitología', 'En la mitología griega, ¿quién era el dios del inframundo y de los muertos?', ['Hades', 'Poseidón', 'Ares', 'Hermes'], 0, 'facil')
     ],
     /*
       const headerHeight = 43;
@@ -205,7 +224,14 @@
       question('Naturaleza', '¿Cómo se llama la capa externa sólida de la Tierra?', ['Corteza', 'Núcleo interno', 'Manto inferior', 'Núcleo externo'], 0, 'medio'),
       question('Naturaleza', '¿Qué tipo de roca se forma al enfriarse el magma?', ['Ígnea', 'Sedimentaria', 'Metamórfica', 'Orgánica'], 0, 'medio'),
       question('Tecnología', '¿Qué protocolo se utiliza para cargar páginas web de forma segura?', ['HTTPS', 'FTP', 'SMTP', 'Telnet'], 0, 'medio'),
-      question('Geografía', '¿En qué ciudad se encuentra la sede principal de la Organización de las Naciones Unidas?', ['Nueva York', 'Ginebra', 'París', 'La Haya'], 0, 'medio')
+      question('Geografía', '¿En qué ciudad se encuentra la sede principal de la Organización de las Naciones Unidas?', ['Nueva York', 'Ginebra', 'París', 'La Haya'], 0, 'medio'),
+      question('Geografía', '¿Qué país soberano posee la mayor longitud de frontera terrestre con Francia?', ['Brasil', 'España', 'Bélgica', 'Alemania'], 0, 'medio'),
+      question('Matemática', 'Al lanzar un dado común de seis caras, ¿cuál es la probabilidad de obtener un número mayor que 6?', ['0', '1/6', '1/3', '1/2'], 0, 'medio'),
+      question('Ciencia', '¿Cuál es el planeta más cercano al Sol?', ['Mercurio', 'Venus', 'Marte', 'La Tierra'], 0, 'medio'),
+      question('Historia', '¿En qué año pisó por primera vez un ser humano la superficie de la Luna?', ['1969', '1968', '1970', '1972'], 0, 'medio'),
+      question('Ciencia', '¿Qué orgánulo produce la mayor parte del ATP y se conoce como la central energética celular?', ['La mitocondria', 'El ribosoma', 'El lisosoma', 'El aparato de Golgi'], 0, 'medio'),
+      question('Historia', '¿En qué año terminó oficialmente la Segunda Guerra Mundial?', ['1945', '1944', '1946', '1947'], 0, 'medio'),
+      question('Literatura', '¿Quién escribió la novela distópica 1984, publicada en 1949?', ['George Orwell', 'Aldous Huxley', 'Ray Bradbury', 'H. G. Wells'], 0, 'medio')
     ],
     dificil: [
       question('Matemática', 'Si 3x + 5 = 26, ¿cuánto vale x?', ['7', '6', '8', '9'], 0, 'dificil'),
@@ -248,7 +274,20 @@
       question('Naturaleza', '¿Cuál es el lago más profundo del mundo?', ['Baikal', 'Tanganica', 'Superior', 'Victoria'], 0, 'dificil'),
       question('Naturaleza', '¿Qué desierto frío se extiende por Mongolia y el norte de China?', ['Gobi', 'Kalahari', 'Atacama', 'Sonora'], 0, 'dificil'),
       question('Naturaleza', '¿Qué tipo de roca es el mármol después de la recristalización de caliza?', ['Metamórfica', 'Ígnea', 'Sedimentaria clástica', 'Volcánica vítrea'], 0, 'dificil'),
-      question('Naturaleza', '¿Qué río atraviesa la ciudad de Viena?', ['Danubio', 'Dniéper', 'Po', 'Ródano'], 0, 'dificil')
+      question('Naturaleza', '¿Qué río atraviesa la ciudad de Viena?', ['Danubio', 'Dniéper', 'Po', 'Ródano'], 0, 'dificil'),
+      question('Matemática', 'Al lanzar un dado equilibrado de seis caras, ¿cuál es la probabilidad de obtener un número primo?', ['1/2', '1/3', '2/3', '1/6'], 0, 'dificil'),
+      question('Ciencia', '¿Qué planeta del Sistema Solar completa su rotación sobre el eje en menos de diez horas?', ['Júpiter', 'Saturno', 'Neptuno', 'Urano'], 0, 'dificil'),
+      question('Matemática', '¿Qué valor de x satisface la ecuación 2x + 6 = 14?', ['4', '3', '5', '6'], 0, 'dificil'),
+      question('Ciencia', '¿Qué tipo de cuerpo celeste es el Sol?', ['Una estrella', 'Un planeta', 'Un satélite natural', 'Un cometa'], 0, 'dificil'),
+      question('Matemática', '¿Qué valor de x satisface la ecuación 3x - 7 = 2x + 5?', ['12', '10', '14', '6'], 0, 'dificil')
+    ],
+    imposible: [
+      question('Literatura', 'En la Divina Comedia, ¿quiénes son los tres traidores que Lucifer mastica en la Judeca?', ['Judas Iscariote, Bruto y Casio', 'Judas Iscariote, Pilato y Nerón', 'Bruto, Casio y Catilina', 'Caín, Judas Iscariote y Bruto'], 0, 'imposible'),
+      question('Historia', '¿En qué batalla naval del año 480 a. C. vencieron los atenienses y sus aliados a la flota de Jerjes I?', ['La batalla de Salamina', 'La batalla de Artemisio', 'La batalla de Mícala', 'La batalla de Egospótamos'], 0, 'imposible'),
+      question('Ciencia', '¿Qué matemático francés del siglo XVII formuló el principio de tiempo mínimo para la trayectoria de la luz?', ['Pierre de Fermat', 'René Descartes', 'Christiaan Huygens', 'Blaise Pascal'], 0, 'imposible'),
+      question('Matemática', 'En la sucesión 2, 6, 12, 20, 30, ¿cuál es el sexto término?', ['42', '40', '44', '36'], 0, 'imposible'),
+      question('Geografía', '¿Cuál de estos países está rodeado únicamente por países sin litoral?', ['Uzbekistán', 'Mongolia', 'Afganistán', 'Nepal'], 0, 'imposible'),
+      question('Matemática', '¿Cómo se llama un polígono de once lados?', ['Hendecágono', 'Decágono', 'Dodecágono', 'Eneágono'], 0, 'imposible')
     ],
     extraFacil: [
       question('Matemática', '¿Cuánto es la mitad de 18?', ['9', '8', '10', '12'], 0, 'facil'),
@@ -279,13 +318,16 @@
   const DIFFICULTY_OPTIONS = [
     { key: 'facil', title: 'FÁCIL', description: '6 preguntas; puedes fallar hasta 3.' },
     { key: 'medio', title: 'MEDIO', description: '5 preguntas; pierdes al tercer error.' },
-    { key: 'dificil', title: 'DIFÍCIL', description: '4 preguntas; una extra si empatas.' }
+    { key: 'dificil', title: 'DIFÍCIL', description: '4 preguntas; una extra si empatas.' },
+    { key: 'imposible', title: 'IMPOSIBLE', description: '1 pregunta, 1 oportunidad.' }
   ];
   const INTRO_TEXT = 'Alto ahí, pequeña. Nadie trepa este pino sin demostrar su ingenio. Responde mis preguntas y te dejaré pasar. ¿Qué nivel de desafío eliges?';
   const EXTRA_EASY_TEXT = 'Empatados... Te haré una última pregunta';
   const EXTRA_HARD_TEXT = 'Esta es la última y la más difícil';
+  const IMPOSSIBLE_WARNING = 'Solo tendrás una oportunidad. Si fallas, perderás. Piénsalo bien';
   const WIN_TEXT = 'Has demostrado tu ingenio. El pino es todo tuyo';
   const LOSE_TEXT = 'Aún te falta estudiar un poco. Inténtalo de nuevo';
+  const IMPOSSIBLE_LOSE_TEXT = 'Ese era un desafío imposible. Inténtalo de nuevo';
   const memoryQuestionHistory = {};
   const memoryLastAttempt = {};
 
@@ -371,7 +413,7 @@
   }
 
   function validateQuestionBank() {
-    const pools = [QUESTION_BANK.facil, QUESTION_BANK.medio, QUESTION_BANK.dificil, QUESTION_BANK.extraFacil, QUESTION_BANK.extraDificil];
+    const pools = [QUESTION_BANK.facil, QUESTION_BANK.medio, QUESTION_BANK.dificil, QUESTION_BANK.imposible, QUESTION_BANK.extraFacil, QUESTION_BANK.extraDificil];
     const ids = new Set();
     for (const pool of pools) {
       const prompts = new Set();
@@ -384,7 +426,8 @@
         ids.add(item.id);
       }
     }
-    if (QUESTION_BANK.facil.length < 60 || QUESTION_BANK.medio.length < 50 || QUESTION_BANK.dificil.length < 40 ||
+    if (QUESTION_BANK.facil.length < 66 || QUESTION_BANK.medio.length < 57 || QUESTION_BANK.dificil.length < 45 ||
+      QUESTION_BANK.imposible.length < 6 ||
         QUESTION_BANK.extraFacil.length < 10 || QUESTION_BANK.extraDificil.length < 10) {
       throw new Error('El banco de preguntas no alcanza las cantidades mínimas.');
     }
@@ -426,6 +469,7 @@
     let dialogueNext = '';
     let girlOptions = { facingRight: true, animTime: 0, hasDuck: false, state: 'idle' };
     let interactionsEnabled = true;
+    let victoryGirlX = GOBLIN_INITIAL_GIRL_X;
 
     function buildScene() {
       if (sceneReady) return;
@@ -726,9 +770,12 @@
         substate = 'difficulty';
       } else if (nextState === 'extraNotice') {
         beginExtraQuestion();
+      } else if (nextState === 'impossibleNotice') {
+        createSession('imposible');
       } else if (nextState === 'victory') {
         substate = 'victoryExit';
         elapsed = 0;
+        victoryGirlX = GOBLIN_INITIAL_GIRL_X;
       } else if (nextState === 'defeatDialog') {
         substate = 'defeat';
       }
@@ -805,7 +852,9 @@
       } else {
         errorCount++;
         reaction = 'sad';
-        feedbackText = `Casi, la respuesta era ${currentQuestion.opciones[currentQuestion.correcta]}.`;
+        feedbackText = GOBLIN_QUIZ_CONFIG.difficulties[difficulty].showCorrectAnswer === false
+          ? IMPOSSIBLE_LOSE_TEXT
+          : `Casi, la respuesta era ${currentQuestion.opciones[currentQuestion.correcta]}.`;
         dependencies.audio.playTone(390, 'sine', 0.2, -75, 0.1);
       }
       if (extraMode) {
@@ -887,20 +936,42 @@
       extraMode = false;
       plannedResult = 'continue';
       transitionSent = false;
+      victoryGirlX = GOBLIN_INITIAL_GIRL_X;
       beginDialogue(INTRO_TEXT, 'intro');
+    }
+
+    function restartLevel() {
+      dependencies.cancelTransition();
+      startLevel();
+    }
+
+    function startPineTransition() {
+      if (transitionSent) return;
+      transitionSent = true;
+      substate = 'transitioning';
+      dependencies.switchState(
+        dependencies.states.LEVEL3,
+        1 / (60 * GOBLIN_FADE_OUT_TIME),
+        GOBLIN_BLACK_HOLD_TIME
+      );
     }
 
     function update(deltaTime) {
       elapsed += deltaTime;
-      if ((substate === 'intro' || substate === 'extraNotice' || substate === 'victory' || substate === 'defeatDialog') &&
+      if ((substate === 'intro' || substate === 'extraNotice' || substate === 'impossibleNotice' || substate === 'victory' || substate === 'defeatDialog') &&
           elapsed >= dialogueDuration(dialogueText)) {
         advanceDialogue();
       } else if (substate === 'feedback') {
         feedbackElapsed += deltaTime;
         if (feedbackElapsed >= GOBLIN_QUIZ_CONFIG.feedbackSeconds) advanceFeedback();
-      } else if (substate === 'victoryExit' && elapsed >= GOBLIN_QUIZ_CONFIG.winAnimationSeconds && !transitionSent) {
-        transitionSent = true;
-        dependencies.switchState(dependencies.states.LEVEL3, 0.035, 0.2);
+      } else if (substate === 'victoryExit') {
+        victoryGirlX = Math.min(GOBLIN_WALK_TARGET_X, victoryGirlX + GOBLIN_WALK_SPEED * deltaTime);
+        if (victoryGirlX >= GOBLIN_WALK_TARGET_X) {
+          substate = 'victoryPause';
+          elapsed = 0;
+        }
+      } else if (substate === 'victoryPause' && elapsed >= GOBLIN_STOP_PAUSE_TIME) {
+        startPineTransition();
       }
     }
 
@@ -959,25 +1030,26 @@
 
     function drawDifficultyCard(ctx, index, narrow) {
       const option = DIFFICULTY_OPTIONS[index];
-      const x = narrow ? dependencies.width / 2 : 240 + index * 400;
-      const y = narrow ? 240 + index * 94 : 250;
-      const width = narrow ? 720 : 310;
-      const height = narrow ? 76 : 106;
+      const x = narrow ? dependencies.width / 2 : 430 + (index % 2) * 420;
+      const y = narrow ? 166 + index * 68 : 220 + Math.floor(index / 2) * 116;
+      const width = narrow ? 720 : 360;
+      const height = narrow ? 58 : 94;
       const hover = dependencies.isMouseInBox(x, y, width, height);
       const fill = hover ? '#f5bc63' : '#f1d49c';
       drawRoundedPanel(ctx, x - width / 2, y - height / 2, width, height, fill, hover ? '#fff1cb' : '#b47d4a');
       ctx.fillStyle = '#68452e';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = '700 21px Fredoka, Quicksand, sans-serif';
-      ctx.fillText(option.title, x, y - (narrow ? 12 : 19));
+      ctx.font = `700 ${narrow ? 18 : 21}px Fredoka, Quicksand, sans-serif`;
+      ctx.fillText(option.title, x, y - (narrow ? 10 : 17));
       ctx.fillStyle = '#72543b';
       ctx.font = '500 14px Fredoka, Quicksand, sans-serif';
-      ctx.fillText(option.description, x, y + (narrow ? 15 : 22), width - 20);
+      ctx.fillText(option.description, x, y + (narrow ? 14 : 21), width - 20);
       if (interactionsEnabled && dependencies.mouse.clicked && hover) {
         dependencies.mouse.clicked = false;
         dependencies.audio.sfxClick();
-        createSession(option.key);
+        if (option.key === 'imposible') beginDialogue(IMPOSSIBLE_WARNING, 'impossibleNotice');
+        else createSession(option.key);
       }
     }
 
@@ -1021,7 +1093,11 @@
       let fill = hover ? '#f6dfb1' : '#fffaf0';
       let border = '#bd9365';
       if (substate === 'feedback') {
-        if (index === currentQuestion.correcta) {
+        const impossibleWrongAnswer = GOBLIN_QUIZ_CONFIG.difficulties[difficulty].showCorrectAnswer === false && feedbackText !== '¡Muy bien!';
+        if (index === selectedOption && impossibleWrongAnswer) {
+          fill = '#f0c1b6';
+          border = '#ba7163';
+        } else if (index === currentQuestion.correcta && !impossibleWrongAnswer) {
           fill = '#cce6bd';
           border = '#6f9c5e';
         } else if (index === selectedOption) {
@@ -1355,11 +1431,12 @@
     }
 
     function drawCharacters(ctx) {
-      const girlX = substate === 'victoryExit' ? Math.min(445, 400 + elapsed * 36) : 400;
+      const walkingToTree = substate === 'victoryExit' || substate === 'victoryPause' || substate === 'transitioning';
+      const girlX = walkingToTree ? victoryGirlX : GOBLIN_INITIAL_GIRL_X;
       girlOptions.animTime = elapsed;
-      girlOptions.state = substate === 'victoryExit' ? 'run' : 'idle';
+      girlOptions.state = substate === 'victoryExit' && victoryGirlX < GOBLIN_WALK_TARGET_X ? 'run' : 'idle';
       dependencies.drawGirl(ctx, girlX, GOBLIN_QUIZ_CONFIG.groundY, girlOptions);
-      const goblinX = substate === 'victoryExit' ? 920 + Math.min(32, elapsed * 18) : 920;
+      const goblinX = walkingToTree ? 944 : 920;
       drawGoblin(ctx, goblinX, GOBLIN_QUIZ_CONFIG.groundY);
     }
 
@@ -1376,6 +1453,10 @@
     function draw(ctx) {
       buildScene();
       interactionsEnabled = !dependencies.isPaused();
+      if (interactionsEnabled && (substate === 'victoryExit' || substate === 'victoryPause') && dependencies.mouse.clicked) {
+        dependencies.mouse.clicked = false;
+        startPineTransition();
+      }
       drawCameraScene(ctx);
       if (substate === 'intro') {
         drawDialoguePanel(ctx, dialogueText, 44, 850, true);
@@ -1385,9 +1466,13 @@
         drawQuestion(ctx);
       } else if (substate === 'extraNotice') {
         drawDialoguePanel(ctx, dialogueText, 44, 850, true);
-      } else if (substate === 'victory' || substate === 'victoryExit') {
+      } else if (substate === 'impossibleNotice') {
+        drawDialoguePanel(ctx, dialogueText, 44, 850, true);
+      } else if (substate === 'victory') {
         drawCelebration(ctx);
-        drawDialoguePanel(ctx, dialogueText, 34, 850, substate === 'victory');
+        drawDialoguePanel(ctx, dialogueText, 34, 850, true);
+      } else if (substate === 'victoryExit' || substate === 'victoryPause') {
+        drawCelebration(ctx);
       } else if (substate === 'defeatDialog') {
         drawDialoguePanel(ctx, dialogueText, 44, 850, true);
       } else if (substate === 'defeat') {
@@ -1398,7 +1483,18 @@
     }
 
     function handleKey(event) {
-      if (substate === 'intro' || substate === 'extraNotice' || substate === 'victory' || substate === 'defeatDialog') {
+      const restartShortcut = (event.ctrlKey || event.metaKey) && event.key?.toLowerCase() === GOBLIN_RESTART_KEY;
+      if (restartShortcut) {
+        event.preventDefault();
+        if (!event.repeat && !dependencies.isPaused()) restartLevel();
+        return true;
+      }
+      if (dependencies.isPaused()) return false;
+      if ((substate === 'victoryExit' || substate === 'victoryPause') && (event.code === 'Space' || event.code === 'Enter')) {
+        startPineTransition();
+        return true;
+      }
+      if (substate === 'intro' || substate === 'extraNotice' || substate === 'impossibleNotice' || substate === 'victory' || substate === 'defeatDialog') {
         if (event.code === 'Enter' || event.code === 'Space') {
           advanceDialogue();
           return true;
@@ -1409,6 +1505,7 @@
         if (event.code === 'Digit1' || event.code === 'Numpad1') createSession('facil');
         else if (event.code === 'Digit2' || event.code === 'Numpad2') createSession('medio');
         else if (event.code === 'Digit3' || event.code === 'Numpad3') createSession('dificil');
+        else if (event.code === 'Digit4' || event.code === 'Numpad4') beginDialogue(IMPOSSIBLE_WARNING, 'impossibleNotice');
         else return false;
         dependencies.audio.sfxClick();
         return true;
@@ -1436,7 +1533,7 @@
       handleKey,
       decideOutcome,
       getSnapshot() {
-        return { substate, difficulty, questionIndex, correctCount, errorCount, extraMode, currentQuestion };
+        return { substate, difficulty, questionIndex, correctCount, errorCount, extraMode, currentQuestion, victoryGirlX };
       }
     };
   };
