@@ -21,7 +21,10 @@ const server = http.createServer((req, res) => {
       '.css': 'text/css',
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
-      '.svg': 'image/svg+xml'
+      '.svg': 'image/svg+xml',
+      '.ttf': 'font/ttf',
+      '.woff': 'font/woff',
+      '.woff2': 'font/woff2'
     };
     res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' });
     res.end(data);

@@ -11,6 +11,8 @@
   const GOBLIN_INITIAL_GIRL_X = 400;
   const GOBLIN_TRUNK_ROOT_X = 826;
   const GOBLIN_WALK_TARGET_X = GOBLIN_TRUNK_ROOT_X - GOBLIN_STOP_DISTANCE / CAMERA_ZOOM - 16;
+  const LEAVES_PILE_X = 635;
+  const FALL_TIME = 0.9;
   const DIALOGUE_MIN_TIME = 3.5;
   const DIALOGUE_SECONDS_PER_CHARACTER = 0.06;
   const GOBLIN_QUIZ_CONFIG = {
@@ -457,6 +459,23 @@
     let girlOptions = { facingRight: true, animTime: 0, hasDuck: false, state: 'idle' };
     let interactionsEnabled = true;
     let victoryGirlX = GOBLIN_INITIAL_GIRL_X;
+    let holeLeaves = [];
+    function initHoleLeaves() {
+      holeLeaves = [];
+      const leafColors = ['#d48046', '#e5a350', '#b9663d', '#dfbb66', '#a65d38', '#c98a58'];
+      for (let i = 0; i < 16; i++) {
+        holeLeaves.push({
+          relX: (i - 7.5) * 4.2 + (Math.random() - 0.5) * 6,
+          relY: ((i % 3) * 2.5) + (Math.random() - 0.5) * 3,
+          color: leafColors[i % leafColors.length],
+          rot: (Math.random() - 0.5) * 1.5,
+          size: 4 + Math.random() * 3,
+          vx: (Math.random() - 0.5) * 65,
+          vy: 85 + Math.random() * 85,
+          vrot: (Math.random() - 0.5) * 6
+        });
+      }
+    }
 
     function buildScene() {
       if (sceneReady) return;
@@ -920,6 +939,7 @@
       plannedResult = 'continue';
       transitionSent = false;
       victoryGirlX = GOBLIN_INITIAL_GIRL_X;
+      initHoleLeaves();
       beginDialogue(INTRO_TEXT, 'intro');
     }
 
@@ -928,14 +948,25 @@
       startLevel();
     }
 
-    function startPineTransition() {
+    function startCaveCinematicTransition() {
       if (transitionSent) return;
       transitionSent = true;
       substate = 'transitioning';
       dependencies.switchState(
-        dependencies.states.LEVEL3,
-        1 / (60 * GOBLIN_FADE_OUT_TIME),
-        GOBLIN_BLACK_HOLD_TIME
+        dependencies.states.CAVE_CINEMATIC,
+        0.05,
+        0.15
+      );
+    }
+
+    function skipToCaveLevel() {
+      if (transitionSent) return;
+      transitionSent = true;
+      substate = 'transitioning';
+      dependencies.switchState(
+        dependencies.states.CAVE_TYPING,
+        0.04,
+        0.1
       );
     }
 
@@ -948,13 +979,19 @@
         feedbackElapsed += deltaTime;
         if (feedbackElapsed >= GOBLIN_QUIZ_CONFIG.feedbackSeconds) advanceFeedback();
       } else if (substate === 'victoryExit') {
-        victoryGirlX = Math.min(GOBLIN_WALK_TARGET_X, victoryGirlX + GOBLIN_WALK_SPEED * deltaTime);
-        if (victoryGirlX >= GOBLIN_WALK_TARGET_X) {
-          substate = 'victoryPause';
+        victoryGirlX += GOBLIN_WALK_SPEED * deltaTime;
+        if (victoryGirlX >= LEAVES_PILE_X) {
+          substate = 'holeFall';
           elapsed = 0;
+          initHoleLeaves();
+          if (dependencies.audio && dependencies.audio.sfxCrumble) {
+            dependencies.audio.sfxCrumble();
+          }
         }
-      } else if (substate === 'victoryPause' && elapsed >= GOBLIN_STOP_PAUSE_TIME) {
-        startPineTransition();
+      } else if (substate === 'holeFall') {
+        if (elapsed >= FALL_TIME) {
+          startCaveCinematicTransition();
+        }
       }
     }
 
@@ -1255,12 +1292,14 @@
       ctx.fillText(text, x, y + 1);
     }
 
-    function drawGoblin(ctx, x, groundY) {
-      const breathing = Math.sin(elapsed * 2.4) * 1.5;
+    function drawGoblin(ctx, x, groundY, options = {}) {
+      const isLaughing = options.laughing || false;
+      const animTime = options.elapsed !== undefined ? options.elapsed : elapsed;
+      const breathing = isLaughing ? Math.sin(animTime * 14) * 3.5 : Math.sin(animTime * 2.4) * 1.5;
       const happyJump = substate === 'feedback' && reaction === 'happy' ? Math.max(0, Math.sin(elapsed * 8)) * 5 : 0;
-      const headTilt = reaction === 'sad' ? -0.06 : Math.sin(elapsed * 1.25) * 0.012;
-      const blink = Math.sin(elapsed * 1.5 + 0.4) > 0.985;
-      const talking = substate === 'intro' || substate === 'extraNotice' || substate === 'defeatDialog' || substate === 'victory';
+      const headTilt = isLaughing ? Math.sin(animTime * 8) * 0.05 : (reaction === 'sad' ? -0.06 : Math.sin(animTime * 1.25) * 0.012);
+      const blink = Math.sin(animTime * 1.5 + 0.4) > 0.985;
+      const talking = isLaughing || substate === 'intro' || substate === 'extraNotice' || substate === 'defeatDialog' || substate === 'victory';
       ctx.save();
       ctx.translate(x, groundY - breathing - happyJump);
       ctx.drawImage(goblinBaseCanvas, 55, 119, 70, 61, -35, -DUENDE_HEIGHT, 70, DUENDE_HEIGHT);
@@ -1361,13 +1400,20 @@
       ctx.strokeStyle = '#8b5a48';
       ctx.lineWidth = 1.8;
       ctx.beginPath();
-      if (reaction === 'sad') ctx.arc(0, -30, 4.5, Math.PI * 1.1, Math.PI * 1.9);
-      else if (talking && Math.floor(elapsed * 5) % 2 === 0) ctx.ellipse(0, -31, 2.5, 3.2, 0, 0, Math.PI * 2);
+      if (isLaughing) {
+        ctx.arc(0, -32, 5.5, 0.1, Math.PI - 0.1);
+        ctx.stroke();
+        ctx.fillStyle = '#9b4a40';
+        ctx.beginPath();
+        ctx.ellipse(0, -31, 3.8, 2.8, 0, 0, Math.PI);
+        ctx.fill();
+      } else if (reaction === 'sad') ctx.arc(0, -30, 4.5, Math.PI * 1.1, Math.PI * 1.9);
+      else if (talking && Math.floor(animTime * 5) % 2 === 0) ctx.ellipse(0, -31, 2.5, 3.2, 0, 0, Math.PI * 2);
       else ctx.arc(0, -34, 5, 0.15, Math.PI - 0.15);
-      ctx.stroke();
+      if (!isLaughing) ctx.stroke();
 
       if (talking) {
-        const gesture = Math.sin(elapsed * 3.4) * 4;
+        const gesture = isLaughing ? Math.sin(animTime * 14) * 5 : Math.sin(animTime * 3.4) * 4;
         ctx.strokeStyle = '#557d4e';
         ctx.lineWidth = 7;
         ctx.lineCap = 'round';
@@ -1408,12 +1454,67 @@
       }
     }
 
+    function drawHoleAndLeaves(ctx) {
+      if (substate === 'holeFall' || (substate === 'transitioning' && victoryGirlX >= LEAVES_PILE_X)) {
+        ctx.fillStyle = '#221510';
+        ctx.beginPath();
+        ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY, 36, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        holeLeaves.forEach((leaf) => {
+          ctx.save();
+          const curX = LEAVES_PILE_X + leaf.relX + leaf.vx * elapsed;
+          const curY = GOBLIN_QUIZ_CONFIG.groundY + leaf.relY + leaf.vy * elapsed;
+          ctx.translate(curX, curY);
+          ctx.rotate(leaf.rot + leaf.vrot * elapsed);
+          ctx.fillStyle = leaf.color;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, leaf.size, leaf.size * 0.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+      } else {
+        if (holeLeaves.length === 0) initHoleLeaves();
+        holeLeaves.forEach((leaf) => {
+          ctx.save();
+          ctx.translate(LEAVES_PILE_X + leaf.relX, GOBLIN_QUIZ_CONFIG.groundY - 2 + leaf.relY);
+          ctx.rotate(leaf.rot);
+          ctx.fillStyle = leaf.color;
+          ctx.beginPath();
+          ctx.ellipse(0, 0, leaf.size, leaf.size * 0.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+      }
+    }
+
     function drawCharacters(ctx) {
-      const walkingToTree = substate === 'victoryExit' || substate === 'victoryPause' || substate === 'transitioning';
+      const walkingToTree = substate === 'victoryExit' || substate === 'holeFall' || substate === 'transitioning';
       const girlX = walkingToTree ? victoryGirlX : GOBLIN_INITIAL_GIRL_X;
+      let girlY = GOBLIN_QUIZ_CONFIG.groundY;
       girlOptions.animTime = elapsed;
-      girlOptions.state = substate === 'victoryExit' && victoryGirlX < GOBLIN_WALK_TARGET_X ? 'run' : 'idle';
-      dependencies.drawGirl(ctx, girlX, GOBLIN_QUIZ_CONFIG.groundY, girlOptions);
+      girlOptions.facingRight = true;
+
+      drawHoleAndLeaves(ctx);
+
+      if (substate === 'holeFall') {
+        girlOptions.state = 'fall_hole';
+        const fallProg = Math.min(1, elapsed / FALL_TIME);
+        girlY = GOBLIN_QUIZ_CONFIG.groundY + fallProg * 170;
+        dependencies.drawGirl(ctx, girlX, girlY, girlOptions);
+
+        ctx.fillStyle = '#78a85d';
+        ctx.beginPath();
+        ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY + 3, 38, 10, 0, 0, Math.PI);
+        ctx.fill();
+        ctx.strokeStyle = '#a6bf70';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      } else {
+        girlOptions.state = (substate === 'victoryExit' && victoryGirlX < LEAVES_PILE_X) ? 'run' : 'idle';
+        dependencies.drawGirl(ctx, girlX, girlY, girlOptions);
+      }
+
       const goblinX = walkingToTree ? 944 : 920;
       drawGoblin(ctx, goblinX, GOBLIN_QUIZ_CONFIG.groundY);
     }
@@ -1431,9 +1532,9 @@
     function draw(ctx) {
       buildScene();
       interactionsEnabled = !dependencies.isPaused();
-      if (interactionsEnabled && (substate === 'victoryExit' || substate === 'victoryPause') && dependencies.mouse.clicked) {
+      if (interactionsEnabled && (substate === 'victoryExit' || substate === 'holeFall') && dependencies.mouse.clicked) {
         dependencies.mouse.clicked = false;
-        startPineTransition();
+        skipToCaveLevel();
       }
       drawCameraScene(ctx);
       if (substate === 'intro') {
@@ -1466,8 +1567,8 @@
         return true;
       }
       if (dependencies.isPaused()) return false;
-      if ((substate === 'victoryExit' || substate === 'victoryPause') && (event.code === 'Space' || event.code === 'Enter')) {
-        startPineTransition();
+      if ((substate === 'victoryExit' || substate === 'holeFall') && (event.code === 'Space' || event.code === 'Enter')) {
+        skipToCaveLevel();
         return true;
       }
       if (substate === 'intro' || substate === 'extraNotice' || substate === 'victory' || substate === 'defeatDialog') {
@@ -1507,6 +1608,10 @@
       draw,
       handleKey,
       decideOutcome,
+      drawGoblin(ctx, x, groundY, options = {}) {
+        buildScene();
+        drawGoblin(ctx, x, groundY, options);
+      },
       getSnapshot() {
         return { substate, difficulty, questionIndex, correctCount, errorCount, extraMode, currentQuestion, victoryGirlX };
       }

@@ -203,7 +203,8 @@
     </div>
   </div>
 
-  <script src="goblin-quiz.js"></script>
+    <script src="goblin-quiz.js"></script>
+  <script src="cave-level.js"></script>
   <script>
   /**
    * EL VIAJE DE ANIKA (Inspirado en Anika's Odyssey)
@@ -329,6 +330,8 @@
     LEVEL1: 'LEVEL1',
     LEVEL2: 'LEVEL2',
     GOBLIN_QUIZ: 'GOBLIN_QUIZ',
+    CAVE_CINEMATIC: 'CAVE_CINEMATIC',
+    CAVE_TYPING: 'CAVE_TYPING',
     LEVEL3: 'LEVEL3',
     CINE_FINAL: 'CINE_FINAL',
     VICTORY: 'VICTORY'
@@ -752,6 +755,34 @@
       });
     }
 
+    sfxBatFlap() {
+      this.playNoise(0.08, 380, 0.06);
+      this.playTone(160, 'sine', 0.09, -40, 0.05);
+    }
+
+    sfxKeyCorrect() {
+      this.playTone(520, 'sine', 0.07, 40, 0.09);
+    }
+
+    sfxKeyError() {
+      this.playTone(210, 'sawtooth', 0.12, -40, 0.08);
+    }
+
+    sfxThrow() {
+      this.playNoise(0.12, 600, 0.09);
+      this.playTone(380, 'sine', 0.14, 150, 0.07);
+    }
+
+    sfxStoneHit() {
+      this.playTone(420, 'triangle', 0.08, -120, 0.13);
+      this.playNoise(0.05, 1200, 0.08);
+    }
+
+    sfxBite() {
+      this.playTone(180, 'sawtooth', 0.16, -60, 0.14);
+      this.playNoise(0.1, 400, 0.12);
+    }
+
     setMusicTrack(track) {
       if (this.currentTrack === track) return;
       this.currentTrack = track;
@@ -765,6 +796,7 @@
         'CINE1': 220,
         'LAKE': 300,
         'WOLF': 145,
+        'CAVE': 320,
         'PINE': 190,
         'VICTORY': 280
       };
@@ -806,6 +838,13 @@
         if (s % 8 === 0) {
           this.playTone(220, 'square', 0.25, -20, 0.09);
         }
+      }
+      else if (this.currentTrack === 'CAVE') {
+        const scale = [329.63, 392.00, 493.88, 587.33, 659.25, 783.99];
+        const note = scale[s % scale.length];
+        this.playTone(note, 'sine', 0.55, 0, 0.045);
+        if (s % 6 === 0) this.playTone(880, 'sine', 0.07, 240, 0.06);
+        if (s % 8 === 0) this.playTone(164.81, 'triangle', 0.7, 0, 0.07);
       }
       else if (this.currentTrack === 'PINE') {
         // Melodía alegre y saltarina ascendente
@@ -859,8 +898,39 @@
       return;
     }
 
-    // Pausa con tecla P o Escape durante los niveles y el desafío.
-    if (e.code === 'KeyP' || (e.code === 'Escape' && (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.LEVEL3))) {
+    // Control exclusivo del Nivel 4 (Cueva de mecanografía):
+    // Se usa el teclado para escribir palabras. La tecla P NO pausa en este nivel.
+    // La pausa se activa ÚNICAMENTE con Escape o el botón de pausa.
+    if (currentState === STATE.CAVE_TYPING) {
+      if (e.code === 'Escape') {
+        togglePause();
+        e.preventDefault();
+        return;
+      }
+      if (e.code === 'F3') {
+        if (typeof caveLevel !== 'undefined' && caveLevel.toggleDebug) {
+          caveLevel.toggleDebug();
+        }
+        e.preventDefault();
+        return;
+      }
+      if (e.code === 'Space') {
+        e.preventDefault();
+      }
+      if (typeof caveLevel !== 'undefined' && caveLevel.handleKey(e)) {
+        e.preventDefault();
+        return;
+      }
+      return;
+    }
+
+    if (currentState === STATE.CAVE_CINEMATIC && typeof caveCinematic !== 'undefined' && caveCinematic.handleKey(e)) {
+      e.preventDefault();
+      return;
+    }
+
+    // Pausa con tecla P o Escape durante los demás niveles y el desafío.
+    if ((e.code === 'KeyP' && currentState !== STATE.CAVE_TYPING && currentState !== STATE.CAVE_CINEMATIC) || (e.code === 'Escape' && (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.LEVEL3))) {
       togglePause();
       return;
     }
@@ -881,6 +951,7 @@
   });
 
   window.addEventListener('keyup', (e) => {
+    if (currentState === STATE.CAVE_TYPING) return;
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
     if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
     if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.duck = false;
@@ -942,6 +1013,10 @@
     updateMousePos(e.clientX, e.clientY);
     mouse.down = true;
     mouse.clicked = true;
+    if (currentState === STATE.CAVE_TYPING) {
+      const ti = document.getElementById('typingInput');
+      if (ti) ti.focus();
+    }
   });
   window.addEventListener('mouseup', () => { mouse.down = false; });
   window.addEventListener('touchstart', (e) => {
@@ -950,8 +1025,27 @@
       updateMousePos(e.touches[0].clientX, e.touches[0].clientY);
       mouse.down = true;
       mouse.clicked = true;
+      if (currentState === STATE.CAVE_TYPING) {
+        const ti = document.getElementById('typingInput');
+        if (ti) ti.focus();
+      }
     }
   }, { passive: true });
+
+  const tiElem = document.getElementById('typingInput');
+  if (tiElem) {
+    tiElem.addEventListener('input', () => {
+      if (currentState === STATE.CAVE_TYPING && typeof caveLevel !== 'undefined') {
+        const val = tiElem.value;
+        if (val) {
+          for (const ch of val) {
+            caveLevel.handleCharInput(ch);
+          }
+        }
+      }
+      tiElem.value = '';
+    });
+  }
 
   // ==========================================
   // 4. SISTEMA DE PARTÍCULAS
@@ -1182,11 +1276,234 @@
       return;
     }
 
-    // Rebote sutil en idle y run
+    if (animState === 'sit') {
+      // --- ANIMACIÓN SENTADA EN EL SUELO (después de caer a la cueva) ---
+      ctx.fillStyle = '#6d4834';
+      ctx.beginPath();
+      ctx.roundRect(-6, -6, 10, 6, 3);
+      ctx.roundRect(3, -6, 10, 6, 3);
+      ctx.fill();
+
+      ctx.fillStyle = '#4c8c82';
+      ctx.beginPath();
+      ctx.moveTo(-14, 0);
+      ctx.lineTo(14, 0);
+      ctx.lineTo(9, -16);
+      ctx.lineTo(-9, -16);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(-5, -16);
+      ctx.fillStyle = '#dc5847';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-14, 4, -12, 14);
+      ctx.lineTo(2, 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      const headY = -23;
+      ctx.fillStyle = '#5a3825';
+      ctx.beginPath();
+      ctx.arc(1, headY, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-9, headY + 2, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fedec4';
+      ctx.beginPath();
+      ctx.arc(2, headY + 1, 10.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#5a3825';
+      ctx.beginPath();
+      ctx.arc(2, headY - 3, 10.5, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255, 130, 130, 0.55)';
+      ctx.beginPath();
+      ctx.arc(6, headY + 3, 2.6, 0, Math.PI * 2);
+      ctx.arc(-1, headY + 3, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#221e25';
+      ctx.beginPath();
+      ctx.arc(5, headY + 1, 2.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(5.6, headY + 0.3, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#8a4b44';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(4, headY + 4.8, 1.6, 0.1, Math.PI * 0.9);
+      ctx.stroke();
+      ctx.fillStyle = '#dc5847';
+      ctx.beginPath();
+      ctx.arc(-1, headY - 7, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    if (animState === 'fall_hole') {
+      // --- ANIMACIÓN DE CAÍDA POR EL HUECO (brazos arriba, ojos sorprendidos) ---
+      ctx.fillStyle = '#6d4834';
+      ctx.beginPath();
+      ctx.roundRect(-6, -10, 5, 10, 2.5);
+      ctx.roundRect(1, -8, 5, 10, 2.5);
+      ctx.fill();
+
+      ctx.fillStyle = '#4c8c82';
+      ctx.beginPath();
+      ctx.moveTo(-9, -15);
+      ctx.lineTo(9, -15);
+      ctx.lineTo(12, -30);
+      ctx.lineTo(-12, -30);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(-4, -28);
+      ctx.fillStyle = '#dc5847';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-16, -12, -10, -26);
+      ctx.quadraticCurveTo(0, -18, 4, -4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+
+      const headY = -38;
+      ctx.fillStyle = '#5a3825';
+      ctx.beginPath();
+      ctx.arc(0, headY, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-10, headY + 3, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fedec4';
+      ctx.beginPath();
+      ctx.arc(1, headY + 1, 11, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#5a3825';
+      ctx.beginPath();
+      ctx.arc(1, headY - 3, 11, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+      ctx.fillStyle = '#fffdf5';
+      ctx.beginPath();
+      ctx.arc(5, headY + 1, 4.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#221e25';
+      ctx.beginPath();
+      ctx.arc(5, headY + 1, 2.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(5.6, headY + 0.3, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#8a4b44';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.ellipse(4, headY + 6.5, 2.2, 3.2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      // Brazos levantados en sorpresa hacia arriba
+      ctx.fillStyle = '#4c8c82';
+      ctx.beginPath();
+      ctx.roundRect(-14, headY + 6, 5, 18, 2.5);
+      ctx.roundRect(8, headY + 6, 5, 18, 2.5);
+      ctx.fill();
+      ctx.fillStyle = '#fedec4';
+      ctx.beginPath();
+      ctx.arc(-11.5, headY + 5, 3.2, 0, Math.PI * 2);
+      ctx.arc(10.5, headY + 5, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#dc5847';
+      ctx.beginPath();
+      ctx.arc(-2, headY - 8, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    if (animState === 'dust_off') {
+      // --- ANIMACIÓN SACUDIÉNDOSE EL POLVO ---
+      const brush = Math.sin(animTime * 12) * 3.5;
+      ctx.fillStyle = '#6d4834';
+      ctx.beginPath();
+      ctx.roundRect(-7, -12, 6, 12, 3);
+      ctx.roundRect(1, -12, 6, 12, 3);
+      ctx.fill();
+      ctx.fillStyle = '#4c8c82';
+      ctx.beginPath();
+      ctx.moveTo(-11, -12);
+      ctx.lineTo(11, -12);
+      ctx.lineTo(8, -28);
+      ctx.lineTo(-8, -28);
+      ctx.closePath();
+      ctx.fill();
+      ctx.save();
+      ctx.translate(-4, -28);
+      ctx.fillStyle = '#dc5847';
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-14, 10, -11, 20);
+      ctx.lineTo(2, 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      const headY = -35;
+      ctx.fillStyle = '#5a3825';
+      ctx.beginPath();
+      ctx.arc(0, headY, 14, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-11, headY + 2, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fedec4';
+      ctx.beginPath();
+      ctx.arc(1, headY + 2, 11, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#5a3825';
+      ctx.beginPath();
+      ctx.arc(1, headY - 1, 11, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+      ctx.fillStyle = '#221e25';
+      ctx.beginPath();
+      ctx.arc(5, headY + 2, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(5.6, headY + 1.2, 0.8, 0, Math.PI * 2);
+      ctx.fill();
+      // Manos sacudiendo la falda
+      ctx.fillStyle = '#fedec4';
+      ctx.beginPath();
+      ctx.arc(-6 + brush, -18, 3.2, 0, Math.PI * 2);
+      ctx.arc(5 - brush, -18, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#dc5847';
+      ctx.beginPath();
+      ctx.arc(-2, headY - 7, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    // Rebote sutil en idle y run (inicializado antes de cualquier uso)
     let bobY = 0;
     let legL = 0;
     let legR = 0;
     let capeAngle = 0;
+
+    if (animState === 'throw') {
+      // --- ANIMACIÓN DE LANZAR PIEDRA ---
+      bobY = -1;
+    } else if (animState === 'hurt') {
+      // --- ANIMACIÓN DE SUSTO / MORDIDA ---
+      ctx.translate(-4, 0);
+      ctx.rotate(-0.06);
+    }
 
     if (animState === 'idle') {
       bobY = Math.sin(animTime * 4) * 2;
@@ -1282,23 +1599,23 @@
 
     // Ojos tiernos con brillo
     ctx.fillStyle = '#221e25';
-    if (animState === 'cry') {
-      // Ojos llorosos / cerrados de pena
+    if (animState === 'cry' || animState === 'hurt') {
+      // Ojos cerrados de pena o susto
       ctx.lineWidth = 2;
       ctx.strokeStyle = '#221e25';
       ctx.beginPath();
       ctx.arc(5, headY + 1, 3, Math.PI * 1.1, Math.PI * 1.9);
       ctx.stroke();
-      // Lágrima
-      ctx.fillStyle = '#6bc5f8';
-      ctx.beginPath();
-      ctx.arc(7, headY + 6, 2, 0, Math.PI * 2);
-      ctx.fill();
+      if (animState === 'cry') {
+        ctx.fillStyle = '#6bc5f8';
+        ctx.beginPath();
+        ctx.arc(7, headY + 6, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
     } else {
       ctx.beginPath();
       ctx.arc(5, headY + 1, 2.5, 0, Math.PI * 2);
       ctx.fill();
-      // Brillo blanco
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.arc(5.8, headY + 0.3, 1, 0, Math.PI * 2);
@@ -1317,6 +1634,24 @@
       ctx.arc(4, headY + 5, 1.8, 0.1, Math.PI * 0.9);
     }
     ctx.stroke();
+
+    if (animState === 'throw') {
+      // Brazo extendido lanzando piedra (hacia adelante o arriba)
+      ctx.save();
+      ctx.translate(4, -25 - bobY);
+      if (options.throwDir === 'up') {
+        ctx.rotate(-0.75); // inclinación hacia el techo
+      }
+      ctx.fillStyle = '#4c8c82';
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 13, 5, 2.5);
+      ctx.fill();
+      ctx.fillStyle = '#fedec4';
+      ctx.beginPath();
+      ctx.arc(13, 0, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
 
     // Capucha / lazo rojo en la cabeza
     ctx.fillStyle = '#dc5847';
@@ -4391,7 +4726,7 @@
 
     drawHUD(ctx) {
       // 1. Esquina superior izquierda: tarjeta de objetivo autoajustable al texto (maxW = 340)
-      drawInstructionBox(ctx, 'Nivel 4: ¡Salta por las ramas del Gran Pino hasta el nido!', 24, 20, 340);
+      drawInstructionBox(ctx, 'Nivel 5: Salta por las ramas del Gran Pino hasta el nido', 24, 20, 340);
 
       ctx.save();
       ctx.fillStyle = 'rgba(28, 22, 36, 0.58)';
@@ -5046,18 +5381,19 @@
     ctx.font = '500 20px Fredoka';
     ctx.fillText('Elige una aventura para jugar con vidas completas:', 0, -125);
 
-    // Cuatro tarjetas para las aventuras disponibles.
+    // Cinco tarjetas para las aventuras disponibles.
     const levelsData = [
       { id: 1, name: 'El Lago', desc: 'Cruza las piedras', state: STATE.LEVEL1, init: () => level1.init() },
       { id: 2, name: 'El Lobo', desc: 'Salta los troncos', state: STATE.LEVEL2, init: () => level2.init() },
       { id: 3, name: 'El Duende', desc: 'Resuelve sus preguntas', state: STATE.GOBLIN_QUIZ, init: () => goblinQuiz.init() },
-      { id: 4, name: 'El Gran Pino', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
+      { id: 4, name: 'La Cueva', desc: 'Escribe las palabras', state: STATE.CAVE_TYPING, init: () => caveLevel.init() },
+      { id: 5, name: 'El Gran Pino', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
     ];
 
-    const cardW = 200;
+    const cardW = 188;
     const cardH = 210;
-    const startX = -360;
-    const spacingX = 240;
+    const startX = -420;
+    const spacingX = 210;
     const cardY = 5;
 
     levelsData.forEach((lvl, idx) => {
@@ -5354,15 +5690,48 @@
     isMouseInBox
   });
 
+  const caveCinematic = window.createCaveCinematic({
+    width: V_WIDTH,
+    height: V_HEIGHT,
+    states: STATE,
+    switchState,
+    mouse,
+    audio,
+    drawGirl,
+    drawLogo,
+    logoSize: LOGO_SIZE_LEVEL,
+    goblinQuiz
+  });
+
+  const caveLevel = window.createCaveLevel({
+    width: V_WIDTH,
+    height: V_HEIGHT,
+    states: STATE,
+    switchState,
+    mouse,
+    gameState,
+    audio,
+    isPaused: () => isPaused,
+    drawGirl,
+    drawLogo,
+    logoSize: LOGO_SIZE_LEVEL,
+    drawInstructionBox,
+    drawHearts,
+    drawGameOverModal,
+    isPlayerBlinkVisible
+  });
+
   // 13. BUCLE PRINCIPAL DE JUEGO (GAME LOOP)
   // ==========================================
   const FRAME_INTERVAL = 1000 / 60;
   let lastTime = performance.now();
 
   function gameLoop(now) {
+    // Agendar siguiente fotograma de inmediato al inicio para que el bucle jamás muera
+    requestAnimationFrame(gameLoop);
+
     const elapsed = now - lastTime;
     if (elapsed < FRAME_INTERVAL) {
-      requestAnimationFrame(gameLoop);
       return;
     }
 
@@ -5370,7 +5739,7 @@
     lastTime = now - (elapsed % FRAME_INTERVAL);
 
     // Actualizar visibilidad del botón de pausa (solo en los niveles 1, 2 y 3)
-    const canPause = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.LEVEL3);
+    const canPause = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.CAVE_TYPING || currentState === STATE.LEVEL3);
     pauseToggleBtn.style.display = canPause ? 'flex' : 'none';
     if (isTouchDevice) touchControlsElem.style.display = currentState === STATE.GOBLIN_QUIZ ? 'none' : 'flex';
 
@@ -5387,56 +5756,71 @@
         audio.setMusicTrack('WOLF');
       } else if (currentState === STATE.GOBLIN_QUIZ) {
         audio.setMusicTrack('MENU');
+      } else if (currentState === STATE.CAVE_CINEMATIC || currentState === STATE.CAVE_TYPING) {
+        audio.setMusicTrack('CAVE');
       } else if (currentState === STATE.LEVEL3) {
         audio.setMusicTrack('PINE');
       } else if (currentState === STATE.CINE_FINAL || currentState === STATE.VICTORY) {
         audio.setMusicTrack('VICTORY');
       }
 
-      // Actualizar lógica según el estado activo
-      if (!pendingNextState || transitionAlpha < 1) {
-        if (currentState === STATE.CINE1) cine1.update();
-        else if (currentState === STATE.LEVEL1) level1.update();
-        else if (currentState === STATE.LEVEL2) level2.update();
-        else if (currentState === STATE.GOBLIN_QUIZ) goblinQuiz.update(dt);
-        else if (currentState === STATE.LEVEL3) level3.update();
-        else if (currentState === STATE.CINE_FINAL) cineFinal.update();
+      // Actualizar lógica según el estado activo con protección try/catch
+      try {
+        if (!pendingNextState || transitionAlpha < 1) {
+          if (currentState === STATE.CINE1) cine1.update();
+          else if (currentState === STATE.LEVEL1) level1.update();
+          else if (currentState === STATE.LEVEL2) level2.update();
+          else if (currentState === STATE.GOBLIN_QUIZ) goblinQuiz.update(dt);
+          else if (currentState === STATE.CAVE_CINEMATIC) caveCinematic.update(dt);
+          else if (currentState === STATE.CAVE_TYPING) caveLevel.update(dt);
+          else if (currentState === STATE.LEVEL3) level3.update();
+          else if (currentState === STATE.CINE_FINAL) cineFinal.update();
+        }
+        particles.update();
+      } catch (err) {
+        console.error('Error en update de gameLoop:', err);
       }
-
-      particles.update();
     }
 
-    // 1. SIEMPRE pintar primero un color base sólido para que NUNCA quede negro en ninguna franja
-    const baseSkyColors = {
-      [STATE.MENU]: '#78c6e8',
-      [STATE.LEVEL_SELECT]: '#78c6e8',
-      [STATE.CREDITS]: '#78c6e8',
-      [STATE.CINE1]: '#78c6e8',
-      [STATE.LEVEL1]: '#78c6e8',
-      [STATE.LEVEL2]: '#78c6e8',  // Nivel 2 ahora usa fondo de día
-      [STATE.GOBLIN_QUIZ]: '#78c6e8',
-      [STATE.LEVEL3]: '#0e1124',
-      [STATE.CINE_FINAL]: '#533b68',
-      [STATE.VICTORY]: '#533b68'
-    };
-    ctx.fillStyle = baseSkyColors[currentState] || '#78c6e8';
-    ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
+    // 1. SIEMPRE pintar color base y renderizar con protección try/catch
+    try {
+      const baseSkyColors = {
+        [STATE.MENU]: '#78c6e8',
+        [STATE.LEVEL_SELECT]: '#78c6e8',
+        [STATE.CREDITS]: '#78c6e8',
+        [STATE.CINE1]: '#78c6e8',
+        [STATE.LEVEL1]: '#78c6e8',
+        [STATE.LEVEL2]: '#78c6e8',  // Nivel 2 ahora usa fondo de día
+        [STATE.GOBLIN_QUIZ]: '#78c6e8',
+        [STATE.CAVE_CINEMATIC]: '#231d2e',
+        [STATE.CAVE_TYPING]: '#231d2e',
+        [STATE.LEVEL3]: '#0e1124',
+        [STATE.CINE_FINAL]: '#533b68',
+        [STATE.VICTORY]: '#533b68'
+      };
+      ctx.fillStyle = baseSkyColors[currentState] || '#78c6e8';
+      ctx.fillRect(0, 0, V_WIDTH, V_HEIGHT);
 
-    // 2. Renderizado según el estado activo
-    if (currentState === STATE.MENU) drawMenuScreen(ctx);
-    else if (currentState === STATE.LEVEL_SELECT) drawLevelSelectScreen(ctx);
-    else if (currentState === STATE.CREDITS) drawCreditsScreen(ctx);
-    else if (currentState === STATE.CINE1) cine1.draw(ctx);
-    else if (currentState === STATE.LEVEL1) level1.draw(ctx);
-    else if (currentState === STATE.LEVEL2) level2.draw(ctx);
-    else if (currentState === STATE.GOBLIN_QUIZ) goblinQuiz.draw(ctx);
-    else if (currentState === STATE.LEVEL3) level3.draw(ctx);
-    else if (currentState === STATE.CINE_FINAL) cineFinal.draw(ctx);
-    else if (currentState === STATE.VICTORY) drawVictoryScreen(ctx);
+      // 2. Renderizado según el estado activo
+      if (currentState === STATE.MENU) drawMenuScreen(ctx);
+      else if (currentState === STATE.LEVEL_SELECT) drawLevelSelectScreen(ctx);
+      else if (currentState === STATE.CREDITS) drawCreditsScreen(ctx);
+      else if (currentState === STATE.CINE1) cine1.draw(ctx);
+      else if (currentState === STATE.LEVEL1) level1.draw(ctx);
+      else if (currentState === STATE.LEVEL2) level2.draw(ctx);
+      else if (currentState === STATE.GOBLIN_QUIZ) goblinQuiz.draw(ctx);
+      else if (currentState === STATE.CAVE_CINEMATIC) caveCinematic.draw(ctx);
+      else if (currentState === STATE.CAVE_TYPING) caveLevel.draw(ctx);
+      else if (currentState === STATE.LEVEL3) level3.draw(ctx);
+      else if (currentState === STATE.CINE_FINAL) cineFinal.draw(ctx);
+      else if (currentState === STATE.VICTORY) drawVictoryScreen(ctx);
 
-    // 3. Si está en pausa, dibujar el menú modal de pausa por encima
-    if (isPaused) {
-      drawPauseMenu(ctx);
+      // 3. Si está en pausa, dibujar el menú modal de pausa por encima
+      if (isPaused) {
+        drawPauseMenu(ctx);
+      }
+    } catch (err) {
+      console.error('Error en draw de gameLoop:', err);
     }
 
     // 4. Manejo de transiciones suaves entre estados (Fade to Black / Fade in)
@@ -5460,6 +5844,11 @@
               level2.init();
             } else if (currentState === STATE.GOBLIN_QUIZ) {
               goblinQuiz.init();
+            } else if (currentState === STATE.CAVE_CINEMATIC) {
+              caveCinematic.init();
+            } else if (currentState === STATE.CAVE_TYPING) {
+              gameState.startLevel();
+              caveLevel.init();
             } else if (currentState === STATE.LEVEL3) {
               gameState.startLevel();
               level3.init();
@@ -5480,13 +5869,12 @@
     // Resetear clic de ratón por fotograma
     mouse.clicked = false;
     keys.jumpPressed = false;
-
-    requestAnimationFrame(gameLoop);
   }
 
   // Iniciar bucle
   requestAnimationFrame(gameLoop);
 
   </script>
+  <input id="typingInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" style="position:fixed; opacity:0; pointer-events:none; left:-9999px; top:0;">
 </body>
 </html>
