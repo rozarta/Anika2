@@ -112,6 +112,17 @@
       border-color: #ffe680;
     }
 
+    .touch-btn-enter {
+      width: 76px;
+      height: 70px;
+      background: rgba(255, 209, 102, 0.42);
+      border-color: #ffd166;
+      color: #fff4d0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
     .touch-btn-duck {
       width: 70px;
       height: 70px;
@@ -198,13 +209,15 @@
       </div>
       <div class="touch-btn-group">
         <div class="touch-btn touch-btn-duck" id="btn-duck" title="Agacharse (Flecha Abajo / S)">AGACH.</div>
-        <div class="touch-btn touch-btn-jump" id="btn-jump">SALTO</div>
+        <div class="touch-btn touch-btn-enter" id="btn-enter" style="display:none" title="Acción / Trepar / Correr">ENTER</div>
+          <div class="touch-btn touch-btn-jump" id="btn-jump">SALTO</div>
       </div>
     </div>
   </div>
 
     <script src="goblin-quiz.js"></script>
   <script src="cave-level.js"></script>
+  <script src="cave-escape.js"></script>
   <script>
   /**
    * EL VIAJE DE ANIKA (Inspirado en Anika's Odyssey)
@@ -332,6 +345,8 @@
     GOBLIN_QUIZ: 'GOBLIN_QUIZ',
     CAVE_CINEMATIC: 'CAVE_CINEMATIC',
     CAVE_TYPING: 'CAVE_TYPING',
+      QUAKE_CINEMATIC: 'QUAKE_CINEMATIC',
+      CAVE_ESCAPE: 'CAVE_ESCAPE',
     LEVEL3: 'LEVEL3',
     CINE_FINAL: 'CINE_FINAL',
     VICTORY: 'VICTORY'
@@ -755,6 +770,36 @@
       });
     }
 
+    sfxQuake() {
+      this.playNoise(2.2, 160, 0.28);
+      this.playTone(65, 'sine', 1.8, -25, 0.25);
+    }
+
+    sfxRockFall() {
+      this.playNoise(0.25, 600, 0.12);
+      this.playTone(320, 'triangle', 0.1, -120, 0.08);
+    }
+
+    sfxRockImpact() {
+      this.playNoise(0.35, 280, 0.28);
+      this.playTone(95, 'sine', 0.22, -45, 0.26);
+    }
+
+    sfxPlankCreak() {
+      this.playTone(280, 'sawtooth', 0.12, -70, 0.10);
+      this.playTone(220, 'triangle', 0.15, 40, 0.08);
+    }
+
+    sfxClimb() {
+      this.playTone(240, 'sine', 0.12, 120, 0.12);
+      this.playNoise(0.12, 500, 0.10);
+    }
+
+    sfxSprint() {
+      this.playTone(320, 'sine', 0.25, 200, 0.14);
+      this.playNoise(0.3, 800, 0.16);
+    }
+
     sfxBatFlap() {
       this.playNoise(0.08, 380, 0.06);
       this.playTone(160, 'sine', 0.09, -40, 0.05);
@@ -884,6 +929,14 @@
   };
 
   window.addEventListener('keydown', (e) => {
+    const isEnter = (e.code === 'Enter' || e.code === 'NumpadEnter' || e.key === 'Enter');
+    if (isEnter) {
+      if (typeof e.preventDefault === 'function') e.preventDefault();
+      if (document.activeElement && typeof document.activeElement.blur === 'function') {
+        document.activeElement.blur();
+      }
+    }
+
     audio.init();
 
     // Modo de prueba: Ctrl+M reproduce la cinemática final desde cualquier pantalla.
@@ -899,8 +952,6 @@
     }
 
     // Control exclusivo del Nivel 4 (Cueva de mecanografía):
-    // Se usa el teclado para escribir palabras. La tecla P NO pausa en este nivel.
-    // La pausa se activa ÚNICAMENTE con Escape o el botón de pausa.
     if (currentState === STATE.CAVE_TYPING) {
       if (e.code === 'Escape') {
         togglePause();
@@ -924,13 +975,42 @@
       return;
     }
 
+    if (currentState === STATE.QUAKE_CINEMATIC && typeof quakeCinematic !== 'undefined' && quakeCinematic.handleKey(e)) {
+      e.preventDefault();
+      return;
+    }
+
+    // Control exclusivo del Nivel 5 (Escape de la Cueva):
+    if (currentState === STATE.CAVE_ESCAPE) {
+      if (e.code === 'Escape' || e.code === 'KeyP') {
+        togglePause();
+        e.preventDefault();
+        return;
+      }
+      if (e.code === 'F3') {
+        if (typeof caveEscape !== 'undefined' && caveEscape.toggleDebug) {
+          caveEscape.toggleDebug();
+        }
+        e.preventDefault();
+        return;
+      }
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'NumpadEnter'].includes(e.code) || isEnter) {
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+      }
+      if (typeof caveEscape !== 'undefined' && caveEscape.handleKey) {
+        if (caveEscape.handleKey(e)) {
+          return;
+        }
+      }
+    }
+
     if (currentState === STATE.CAVE_CINEMATIC && typeof caveCinematic !== 'undefined' && caveCinematic.handleKey(e)) {
       e.preventDefault();
       return;
     }
 
     // Pausa con tecla P o Escape durante los demás niveles y el desafío.
-    if ((e.code === 'KeyP' && currentState !== STATE.CAVE_TYPING && currentState !== STATE.CAVE_CINEMATIC) || (e.code === 'Escape' && (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.LEVEL3))) {
+    if ((e.code === 'KeyP' && currentState !== STATE.CAVE_TYPING && currentState !== STATE.CAVE_CINEMATIC) || (e.code === 'Escape' && (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.CAVE_ESCAPE || currentState === STATE.LEVEL3))) {
       togglePause();
       return;
     }
@@ -943,23 +1023,28 @@
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
     if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
     if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.duck = true;
+    if (isEnter) {
+      if (!keys.enter) keys.enterPressed = true;
+      keys.enter = true;
+    }
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') {
       if (!keys.jump) keys.jumpPressed = true;
       keys.jump = true;
     }
     if (e.code === 'Escape' && (currentState === STATE.CINE1 || currentState === STATE.CINE_FINAL)) keys.esc = true;
-  });
+  }, true);
 
   window.addEventListener('keyup', (e) => {
     if (currentState === STATE.CAVE_TYPING) return;
+    const isEnter = (e.code === 'Enter' || e.code === 'NumpadEnter' || e.key === 'Enter');
+    if (isEnter) keys.enter = false;
     if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
     if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
     if (e.code === 'ArrowDown' || e.code === 'KeyS') keys.duck = false;
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') keys.jump = false;
     if (e.code === 'Escape') keys.esc = false;
-  });
+  }, true);
 
-  // Botones táctiles virtuales
   const setupTouchBtn = (elem, pressAction, releaseAction) => {
     if (!elem) return;
     const press = (e) => {
@@ -983,6 +1068,14 @@
   setupTouchBtn(document.getElementById('btn-left'), () => { keys.left = true; }, () => { keys.left = false; });
   setupTouchBtn(document.getElementById('btn-right'), () => { keys.right = true; }, () => { keys.right = false; });
   setupTouchBtn(document.getElementById('btn-duck'), () => { keys.duck = true; }, () => { keys.duck = false; });
+  setupTouchBtn(document.getElementById('btn-enter'), () => {
+    if (currentState === STATE.CAVE_ESCAPE && typeof caveEscape !== 'undefined' && caveEscape.registerEnterPress) {
+      caveEscape.registerEnterPress();
+    }
+    if (!keys.enter) keys.enterPressed = true;
+    keys.enter = true;
+  }, () => { keys.enter = false; });
+
   setupTouchBtn(document.getElementById('btn-jump'), () => {
     if (!keys.jump) keys.jumpPressed = true;
     keys.jump = true;
@@ -4726,7 +4819,7 @@
 
     drawHUD(ctx) {
       // 1. Esquina superior izquierda: tarjeta de objetivo autoajustable al texto (maxW = 340)
-      drawInstructionBox(ctx, 'Nivel 5: Salta por las ramas del Gran Pino hasta el nido', 24, 20, 340);
+      drawInstructionBox(ctx, 'Nivel 6: Salta por las ramas del Gran Pino hasta el nido', 24, 20, 340);
 
       ctx.save();
       ctx.fillStyle = 'rgba(28, 22, 36, 0.58)';
@@ -5360,7 +5453,7 @@
     ctx.translate(V_WIDTH / 2, V_HEIGHT / 2);
 
     // Marco estilo libro de cuentos
-    const modalW = 1100;
+    const modalW = 1180;
     const modalH = 460;
     ctx.fillStyle = 'rgba(28, 22, 36, 0.92)';
     ctx.beginPath();
@@ -5383,17 +5476,18 @@
 
     // Cinco tarjetas para las aventuras disponibles.
     const levelsData = [
-      { id: 1, name: 'El Lago', desc: 'Cruza las piedras', state: STATE.LEVEL1, init: () => level1.init() },
-      { id: 2, name: 'El Lobo', desc: 'Salta los troncos', state: STATE.LEVEL2, init: () => level2.init() },
-      { id: 3, name: 'El Duende', desc: 'Resuelve sus preguntas', state: STATE.GOBLIN_QUIZ, init: () => goblinQuiz.init() },
-      { id: 4, name: 'La Cueva', desc: 'Escribe las palabras', state: STATE.CAVE_TYPING, init: () => caveLevel.init() },
-      { id: 5, name: 'El Gran Pino', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
-    ];
+        { id: 1, name: 'El Lago', desc: 'Cruza las piedras', state: STATE.LEVEL1, init: () => level1.init() },
+        { id: 2, name: 'El Lobo', desc: 'Salta los troncos', state: STATE.LEVEL2, init: () => level2.init() },
+        { id: 3, name: 'El Duende', desc: 'Resuelve sus preguntas', state: STATE.GOBLIN_QUIZ, init: () => goblinQuiz.init() },
+        { id: 4, name: 'La Cueva', desc: 'Escribe las palabras', state: STATE.CAVE_TYPING, init: () => caveLevel.init() },
+        { id: 5, name: 'El Escape', desc: 'Huye del derrumbe', state: STATE.CAVE_ESCAPE, init: () => caveEscape.init() },
+        { id: 6, name: 'El Gran Pino', desc: 'Escala al nido', state: STATE.LEVEL3, init: () => level3.init() }
+      ];
 
-    const cardW = 188;
+    const cardW = 166;
     const cardH = 210;
-    const startX = -420;
-    const spacingX = 210;
+    const startX = -465;
+    const spacingX = 186;
     const cardY = 5;
 
     levelsData.forEach((lvl, idx) => {
@@ -5721,6 +5815,48 @@
     isPlayerBlinkVisible
   });
 
+  const quakeCinematic = window.createQuakeCinematic({
+    width: V_WIDTH,
+    height: V_HEIGHT,
+    states: STATE,
+    switchState,
+    mouse,
+    gameState,
+    audio,
+    isPaused: () => isPaused,
+    drawGirl,
+    drawLogo,
+    logoSize: LOGO_SIZE_LEVEL,
+    drawSkipButton: (ctx, x, y, w, h) => {
+      const hover = isMouseInBox(x, y, w, h);
+      drawButton(ctx, x, y, w, h, 'SALTAR', hover);
+      if (mouse.clicked && hover) {
+        mouse.clicked = false;
+        audio.sfxClick();
+        switchState(STATE.CAVE_ESCAPE);
+      }
+    }
+  });
+
+  const caveEscape = window.createCaveEscapeLevel({
+    width: V_WIDTH,
+    height: V_HEIGHT,
+    states: STATE,
+    switchState,
+    mouse,
+    gameState,
+    audio,
+    keys,
+    isPaused: () => isPaused,
+    drawGirl,
+    drawLogo,
+    logoSize: LOGO_SIZE_LEVEL,
+    drawInstructionBox,
+    drawHearts,
+    drawGameOverModal,
+    isPlayerBlinkVisible
+  });
+
   // 13. BUCLE PRINCIPAL DE JUEGO (GAME LOOP)
   // ==========================================
   const FRAME_INTERVAL = 1000 / 60;
@@ -5741,7 +5877,26 @@
     // Actualizar visibilidad del botón de pausa (solo en los niveles 1, 2 y 3)
     const canPause = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.CAVE_TYPING || currentState === STATE.LEVEL3);
     pauseToggleBtn.style.display = canPause ? 'flex' : 'none';
-    if (isTouchDevice) touchControlsElem.style.display = currentState === STATE.GOBLIN_QUIZ ? 'none' : 'flex';
+    if (isTouchDevice) {
+      const showTouch = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.CAVE_ESCAPE || currentState === STATE.LEVEL3);
+      touchControlsElem.style.display = showTouch ? 'flex' : 'none';
+      const btnDuck = document.getElementById('btn-duck');
+      const btnEnter = document.getElementById('btn-enter');
+      const btnJump = document.getElementById('btn-jump');
+      if (btnDuck && btnEnter && btnJump) {
+        if (currentState === STATE.CAVE_ESCAPE) {
+          btnDuck.style.display = 'none';
+          btnEnter.style.display = 'flex';
+          const tramo = (typeof caveEscape !== 'undefined' && caveEscape.getCurrentTramo) ? caveEscape.getCurrentTramo() : 1;
+          // En Tramo 1 no se puede saltar, se oculta el botón de salto
+          btnJump.style.display = (tramo === 1) ? 'none' : 'flex';
+        } else {
+          btnDuck.style.display = 'flex';
+          btnEnter.style.display = 'none';
+          btnJump.style.display = 'flex';
+        }
+      }
+    }
 
     // Si NO está en pausa, actualizar tiempo, música y física
     if (!isPaused) {
@@ -5756,7 +5911,7 @@
         audio.setMusicTrack('WOLF');
       } else if (currentState === STATE.GOBLIN_QUIZ) {
         audio.setMusicTrack('MENU');
-      } else if (currentState === STATE.CAVE_CINEMATIC || currentState === STATE.CAVE_TYPING) {
+      } else if (currentState === STATE.CAVE_CINEMATIC || currentState === STATE.CAVE_TYPING || currentState === STATE.QUAKE_CINEMATIC || currentState === STATE.CAVE_ESCAPE) {
         audio.setMusicTrack('CAVE');
       } else if (currentState === STATE.LEVEL3) {
         audio.setMusicTrack('PINE');
@@ -5773,6 +5928,8 @@
           else if (currentState === STATE.GOBLIN_QUIZ) goblinQuiz.update(dt);
           else if (currentState === STATE.CAVE_CINEMATIC) caveCinematic.update(dt);
           else if (currentState === STATE.CAVE_TYPING) caveLevel.update(dt);
+          else if (currentState === STATE.QUAKE_CINEMATIC) quakeCinematic.update(dt);
+          else if (currentState === STATE.CAVE_ESCAPE) caveEscape.update(dt);
           else if (currentState === STATE.LEVEL3) level3.update();
           else if (currentState === STATE.CINE_FINAL) cineFinal.update();
         }
@@ -5794,6 +5951,8 @@
         [STATE.GOBLIN_QUIZ]: '#78c6e8',
         [STATE.CAVE_CINEMATIC]: '#231d2e',
         [STATE.CAVE_TYPING]: '#231d2e',
+          [STATE.QUAKE_CINEMATIC]: '#231d2e',
+          [STATE.CAVE_ESCAPE]: '#231d2e',
         [STATE.LEVEL3]: '#0e1124',
         [STATE.CINE_FINAL]: '#533b68',
         [STATE.VICTORY]: '#533b68'
@@ -5811,6 +5970,8 @@
       else if (currentState === STATE.GOBLIN_QUIZ) goblinQuiz.draw(ctx);
       else if (currentState === STATE.CAVE_CINEMATIC) caveCinematic.draw(ctx);
       else if (currentState === STATE.CAVE_TYPING) caveLevel.draw(ctx);
+      else if (currentState === STATE.QUAKE_CINEMATIC) quakeCinematic.draw(ctx);
+      else if (currentState === STATE.CAVE_ESCAPE) caveEscape.draw(ctx);
       else if (currentState === STATE.LEVEL3) level3.draw(ctx);
       else if (currentState === STATE.CINE_FINAL) cineFinal.draw(ctx);
       else if (currentState === STATE.VICTORY) drawVictoryScreen(ctx);

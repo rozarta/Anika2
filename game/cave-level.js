@@ -1,7 +1,7 @@
 /**
  * EL VIAJE DE ANIKA - NIVEL 4: LA CUEVA DE LOS MURCIÉLAGOS Y CINEMÁTICA
  * Nivel de mecanografía ilustrado con estética suave y paleta pastel.
- * Versión optimizada: hasta 10 murciélagos simultáneos desde todas direcciones,
+ * Versión calibrada: dificultad equilibrada, hasta 4 murciélagos progresivos,
  * proyectiles fluidos desacoplados, separación anticolisión de carteles y object pooling.
  */
 
@@ -10,7 +10,7 @@
 
   // ==========================================
   // CONSTANTES AJUSTABLES DE DIFICULTAD
-  // Agrupadas y documentadas para fácil calibración
+  // Agrupadas al inicio del código para fácil calibración
   // ==========================================
   const BAT_MAX_SIMULTANEOUS = 4;      // Cantidad máxima de murciélagos simultáneos en pantalla (último tercio)
   const BAT_SPAWN_MIN = 1.5;           // Intervalo mínimo entre apariciones de murciélagos en segundos
@@ -18,11 +18,11 @@
   const BAT_TIME_PER_LETTER = 0.95;    // Tiempo adicional por letra para leer y escribir (~40% más que antes)
   const BAT_BASE_TIME = 3.20;          // Tiempo base de llegada del murciélago (~25% más que antes)
   const BAT_MIN_READ_TIME = 2.5;       // Tiempo mínimo visible y legible antes de llegar a la niña
-  const BAT_MIN_SEPARATION = 75;       // Separación mínima entre murciélagos para evitar carteles superpuestos
   const BAT_MAX_PENDING_LETTERS = 15;  // Carga máxima de letras pendientes en pantalla antes de pausar spawns
   const BAT_SPEED_RAMP = 1.10;         // Incremento máximo de velocidad en el último tercio (10%)
-  const TYPO_TIME_PENALTY = 0.3;       // Penalización suave de tiempo por letra errónea (máximo 1.0 s total por palabra)
+  const TYPO_TIME_PENALTY = 0.3;       // Penalización suave de tiempo por letra errónea (máximo 1.0 s total por murciélago)
   const TYPO_TOLERANCE = 0;            // Tolerancia de errores tipográficos (mantenida por compatibilidad)
+  const BAT_MIN_SEPARATION = 75;       // Separación mínima entre murciélagos para evitar carteles superpuestos
   const LEVEL4_DURATION = 35.0;        // Duración total del nivel en segundos
   const STONE_FLIGHT_TIME = 0.35;      // Duración del vuelo de la piedra (0.3 - 0.4 s)
   const FALL_TIME = 0.9;               // Duración de la caída en el hueco (cinemática)
@@ -532,7 +532,7 @@
         const isError = bat.signErrorTimer > 0;
         const isDefeated = bat.state === 'defeated';
         const woodFill = isDefeated ? '#eefdec' : (isActive ? '#fff6e5' : '#fcedd2');
-        const woodBorder = (isError && isActive) ? '#e05353' : (isDefeated ? '#58ba6d' : (isActive ? '#e09838' : '#b3824f'));
+        const woodBorder = isDefeated ? '#58ba6d' : (isActive ? '#e09838' : '#b3824f');
 
         ctx.fillStyle = 'rgba(38, 25, 20, 0.16)';
         ctx.beginPath();
@@ -819,7 +819,7 @@
 
   // ==========================================
   // OBJETO Y LÓGICA DEL NIVEL 4 (CAVE TYPING)
-  // Con soporte para 10 murciélagos, trayectorias variadas,
+  // Dificultad equilibrada y progresiva (hasta 4 murciélagos),
   // desacoplamiento de piedras y piscinas de memoria fija.
   // ==========================================
   function createCaveLevel(dependencies) {
@@ -835,7 +835,7 @@
     let girlThrowDir = 'side';
     let girlFacingRight = true;
     let graceTimer = 0;
-    let spawnTimer = 0.4;
+    let spawnTimer = 1.2;
     let lastSpawnedInitial = '';
     let wordPool = { short: [], medium: [], long: [] };
     let transitionSent = false;
@@ -933,7 +933,7 @@
       girlThrowDir = 'side';
       girlFacingRight = true;
       graceTimer = 0;
-      spawnTimer = 0.8;
+      spawnTimer = 1.2;
       lastSpawnedInitial = '';
       transitionSent = false;
       girlX_offset = 0;
@@ -1018,7 +1018,7 @@
 
       // Tiempo de llegada justo garantizando BAT_MIN_READ_TIME
       const calcTime = (word.length * BAT_TIME_PER_LETTER + BAT_BASE_TIME) / speedMult;
-      const totalTime = Math.max(BAT_MIN_READ_TIME, calcTime);
+      const totalTime = Math.max(BAT_MIN_READ_TIME + 0.8, calcTime);
 
       // Selección aleatoria del punto de origen fuera de pantalla (derecha, arriba, izquierda)
       const dirRoll = Math.random();
@@ -1038,7 +1038,7 @@
           spawnY = 120 + Math.random() * 240;
           curveType = 'straight';
           controlX = (spawnX + girlTargetX) / 2;
-          controlY = spawnY;
+        controlY = (spawnY + girlTargetY) / 2;
         } else if (dirRoll < 0.75) {
           // Desde arriba (techo de la cueva, suave descenso en curva)
           spawnX = 300 + Math.random() * 520;
@@ -1052,7 +1052,7 @@
           spawnY = 130 + Math.random() * 230;
           curveType = 'straight';
           controlX = (spawnX + girlTargetX) / 2;
-          controlY = spawnY;
+        controlY = (spawnY + girlTargetY) / 2;
         }
 
         bat.active = true;
@@ -1095,7 +1095,11 @@
         bat.vx = (bat.x >= GIRL_X ? 1 : -1) * 440;
         bat.vy = -280;
 
-        dependencies.gameState.lives = Math.max(0, dependencies.gameState.lives - 1);
+      if (activeBat === bat) {
+        activeBat = null;
+      }
+
+      dependencies.gameState.lives = Math.max(0, dependencies.gameState.lives - 1);
         invulTimer = 1.0;
         girlHurtTimer = 0.5;
         streak = 0;
@@ -1216,7 +1220,7 @@
             girlX_offset += 210 * dt;
             if (girlX_offset > dependencies.width - GIRL_X + 80 && !transitionSent) {
               transitionSent = true;
-              dependencies.switchState(dependencies.states.LEVEL3, 0.035, 0.4);
+              dependencies.switchState(dependencies.states.QUAKE_CINEMATIC || dependencies.states.LEVEL3, 0.035, 0.4);
             }
             return;
           }
@@ -1662,76 +1666,98 @@
 
       // Entrada de caracteres
       function handleCharInput(char) {
-        if (gameOver || completed || dependencies.isPaused()) return false;
-        const c = normalizeChar(char);
-        if (!c || c < 'a' || c > 'z') return false;
+      if (gameOver || completed || dependencies.isPaused()) return false;
+      const c = normalizeChar(char);
+      if (!c || c < 'a' || c > 'z') return false;
 
-        // Si no hay objetivo activo, buscar murciélago en vuelo cuya primera letra coincida
-        if (!activeBat) {
-          let bestBat = null;
-          let bestDist = Infinity;
+      // Limpiar referencia de murciélago si ya no está volando
+      if (activeBat && (!activeBat.active || activeBat.state !== 'flying')) {
+        activeBat = null;
+      }
 
-          for (let i = 0; i < BAT_POOL_SIZE; i++) {
-            const b = batPool[i];
-            if (b.active && b.state === 'flying' && b.word && normalizeChar(b.word[0]) === c) {
-              const dist = Math.hypot(b.x - GIRL_X, b.y - (CAVE_GROUND_Y - 30));
-              if (dist < bestDist) {
-                bestDist = dist;
-                bestBat = b;
-              }
+      // Si no hay objetivo activo, buscar murciélago en vuelo cuya primera letra coincida
+      if (!activeBat) {
+        let bestBat = null;
+        let bestDist = Infinity;
+
+        for (let i = 0; i < BAT_POOL_SIZE; i++) {
+          const b = batPool[i];
+          if (b.active && b.state === 'flying' && b.word && normalizeChar(b.word[0]) === c) {
+            const dist = Math.hypot(b.x - GIRL_X, b.y - (CAVE_GROUND_Y - 30));
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestBat = b;
             }
           }
-
-          if (!bestBat) return false;
-
-          activeBat = bestBat;
-          activeBat.typedLength = 1;
-
-          if (dependencies.audio && dependencies.audio.sfxKeyCorrect) {
-            dependencies.audio.sfxKeyCorrect();
-          }
-
-          if (activeBat.typedLength === activeBat.word.length) {
-            defeatBat(activeBat);
-          }
-          return true;
         }
 
-        // Si ya hay objetivo activo, verificar siguiente letra esperada
-        const expectedChar = normalizeChar(activeBat.word[activeBat.typedLength]);
-        if (c === expectedChar) {
-          activeBat.typedLength++;
-          if (dependencies.audio && dependencies.audio.sfxKeyCorrect) {
-            dependencies.audio.sfxKeyCorrect();
-          }
+        if (!bestBat) return false;
 
-          if (activeBat.typedLength === activeBat.word.length) {
-            defeatBat(activeBat);
-          }
-          return true;
-        } else {
-          // Letra errónea
-          if (dependencies.audio && dependencies.audio.sfxKeyError) {
-            dependencies.audio.sfxKeyError();
-          }
+        activeBat = bestBat;
+        activeBat.typedLength = 1;
 
-          activeBat.signErrorTimer = 0.45;
-          activeBat.state = 'attacking';
-          activeBat = null; // Liberado de inmediato
-          return true;
+        if (dependencies.audio && dependencies.audio.sfxKeyCorrect) {
+          dependencies.audio.sfxKeyCorrect();
         }
+
+        if (activeBat.typedLength === activeBat.word.length) {
+          defeatBat(activeBat);
+        }
+        return true;
       }
 
-      function handleKey(e) {
-        if (e.code === 'KeyP') return true;
-        if (e.code === 'Space') return true;
-        if (e.code === 'F3' || e.key === 'F3') {
-          debugMode = !debugMode;
-          return true;
+      // Si ya hay objetivo activo, verificar siguiente letra esperada
+      const expectedChar = normalizeChar(activeBat.word[activeBat.typedLength]);
+      if (c === expectedChar) {
+        activeBat.typedLength++;
+        if (dependencies.audio && dependencies.audio.sfxKeyCorrect) {
+          dependencies.audio.sfxKeyCorrect();
         }
-        if (e.ctrlKey || e.metaKey || e.altKey) return false;
-        return handleCharInput(e.key);
+
+        if (activeBat.typedLength === activeBat.word.length) {
+          defeatBat(activeBat);
+        }
+        return true;
+      } else {
+        // Letra errónea
+        if (dependencies.audio && dependencies.audio.sfxKeyError) {
+          dependencies.audio.sfxKeyError();
+        }
+
+        // Feedback visual breve del error: la letra pendiente esperada parpadea en rojo suave por unos 0.2 s
+        activeBat.signErrorTimer = 0.2;
+
+        // Penalización suave de tiempo de llegada (ajustable con TYPO_TIME_PENALTY, con 0 se desactiva)
+        // Limita el total de penalización por murciélago a 1.0 s
+        if (TYPO_TIME_PENALTY > 0) {
+          const maxPenalty = 1.0;
+          const currentPenalty = activeBat.typoPenaltyTotal || 0;
+          const remainingAllowed = Math.max(0, maxPenalty - currentPenalty);
+          const penalty = Math.min(TYPO_TIME_PENALTY, remainingAllowed);
+          if (penalty > 0) {
+            activeBat.typoPenaltyTotal = currentPenalty + penalty;
+            activeBat.totalTime = Math.max(BAT_MIN_READ_TIME * 0.6, activeBat.totalTime - penalty);
+          }
+        }
+
+        // El murciélago NO cambia su velocidad de golpe ni su trayectoria, y NO se lanza a atacar.
+        // Sigue volando exactamente igual que antes del error.
+        // La letra equivocada se ignora: el progreso de la palabra se mantiene donde estaba
+        // y el jugador puede seguir escribiendo la letra correcta sin tener que empezar de nuevo.
+        // El murciélago sigue siendo el objetivo activo.
+        return true;
       }
+    }
+
+    function handleKey(e) {
+      if (e.code === 'Space') return true;
+      if (e.code === 'F3' || e.key === 'F3') {
+        debugMode = !debugMode;
+        return true;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return false;
+      return handleCharInput(e.key);
+    }
 
       return {
         init,
@@ -1756,4 +1782,4 @@
 
     window.createCaveCinematic = createCaveCinematic;
     window.createCaveLevel = createCaveLevel;
-  }) ();
+  })();

@@ -1,7 +1,7 @@
 /**
  * EL VIAJE DE ANIKA - NIVEL 4: LA CUEVA DE LOS MURCIÉLAGOS Y CINEMÁTICA
  * Nivel de mecanografía ilustrado con estética suave y paleta pastel.
- * Versión optimizada: hasta 10 murciélagos simultáneos desde todas direcciones,
+ * Versión calibrada: dificultad equilibrada, hasta 4 murciélagos progresivos,
  * proyectiles fluidos desacoplados, separación anticolisión de carteles y object pooling.
  */
 
@@ -9,20 +9,22 @@
   'use strict';
 
   // ==========================================
-  // CONSTANTES AJUSTABLES
+  // CONSTANTES AJUSTABLES DE DIFICULTAD
+  // Agrupadas al inicio del código para fácil calibración
   // ==========================================
-  const BAT_MAX_SIMULTANEOUS = 10;     // Hasta 10 murciélagos en pantalla al mismo tiempo
-  const BAT_SPAWN_MIN = 0.45;          // Intervalo mínimo entre apariciones (0.4 - 1.2 s)
-  const BAT_SPAWN_MAX = 1.1;           // Intervalo máximo entre apariciones
-  const BAT_TIME_PER_LETTER = 0.68;    // Reducido ~28% (más exigente pero justo)
-  const BAT_BASE_TIME = 2.56;          // Reducido 20%
-  const BAT_MIN_READ_TIME = 1.5;       // Tiempo mínimo visible y legible antes de llegar a la niña
-  const BAT_MIN_SEPARATION = 68;       // Separación mínima entre murciélagos para no superponer carteles
-  const BAT_MAX_PENDING_LETTERS = 40;  // Límite de carga total de letras pendientes
-  const BAT_SPEED_RAMP = 1.20;         // Incremento de velocidad hasta un 20% en el último tercio
-  const STONE_FLIGHT_TIME = 0.35;      // Duración del vuelo de la piedra (0.3 - 0.4 s)
-  const TYPO_TOLERANCE = 0;            // Tolerancia de errores tipográficos
+  const BAT_MAX_SIMULTANEOUS = 4;      // Cantidad máxima de murciélagos simultáneos en pantalla (último tercio)
+  const BAT_SPAWN_MIN = 1.5;           // Intervalo mínimo entre apariciones de murciélagos en segundos
+  const BAT_SPAWN_MAX = 3.0;           // Intervalo máximo entre apariciones de murciélagos en segundos
+  const BAT_TIME_PER_LETTER = 0.95;    // Tiempo adicional por letra para leer y escribir (~40% más que antes)
+  const BAT_BASE_TIME = 3.20;          // Tiempo base de llegada del murciélago (~25% más que antes)
+  const BAT_MIN_READ_TIME = 2.5;       // Tiempo mínimo visible y legible antes de llegar a la niña
+  const BAT_MAX_PENDING_LETTERS = 15;  // Carga máxima de letras pendientes en pantalla antes de pausar spawns
+  const BAT_SPEED_RAMP = 1.10;         // Incremento máximo de velocidad en el último tercio (10%)
+  const TYPO_TIME_PENALTY = 0.3;       // Penalización suave de tiempo por letra errónea (máximo 1.0 s total por murciélago)
+  const TYPO_TOLERANCE = 0;            // Tolerancia de errores tipográficos (mantenida por compatibilidad)
+  const BAT_MIN_SEPARATION = 75;       // Separación mínima entre murciélagos para evitar carteles superpuestos
   const LEVEL4_DURATION = 35.0;        // Duración total del nivel en segundos
+  const STONE_FLIGHT_TIME = 0.35;      // Duración del vuelo de la piedra (0.3 - 0.4 s)
   const FALL_TIME = 0.9;               // Duración de la caída en el hueco (cinemática)
   const GOBLIN_LAUGH_TIME = 3.5;       // Duración de la risa del duende (mínimo 3s)
   const CAVE_CINEMATIC_FADE = 1.0;     // Tiempo de fundido a negro al terminar la cinemática
@@ -529,8 +531,8 @@
 
         const isError = bat.signErrorTimer > 0;
         const isDefeated = bat.state === 'defeated';
-        const woodFill = isError ? '#ffe3e3' : (isDefeated ? '#eefdec' : (isActive ? '#fff6e5' : '#fcedd2'));
-        const woodBorder = isError ? '#e05353' : (isDefeated ? '#58ba6d' : (isActive ? '#e09838' : '#b3824f'));
+        const woodFill = isDefeated ? '#eefdec' : (isActive ? '#fff6e5' : '#fcedd2');
+        const woodBorder = isDefeated ? '#58ba6d' : (isActive ? '#e09838' : '#b3824f');
 
         ctx.fillStyle = 'rgba(38, 25, 20, 0.16)';
         ctx.beginPath();
@@ -546,7 +548,7 @@
         ctx.lineWidth = (isActive || isDefeated) ? 3 : 2;
         ctx.stroke();
 
-        // Letras: verde = escrita correcta o derrotado, base = pendiente
+        // Letras: verde = acertadas o derrotado, rojo suave = letra esperada parpadeando si error, marrón = pendientes
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         let currentX = signX + (signW - textW) / 2;
@@ -559,8 +561,10 @@
 
           if (isDefeated || i < typedLen) {
             ctx.fillStyle = '#229944';
+          } else if (i === typedLen && isError) {
+            ctx.fillStyle = '#d94343'; // Letra esperada parpadea en rojo suave al fallar
           } else {
-            ctx.fillStyle = isError ? '#a83232' : '#523a2b';
+            ctx.fillStyle = '#523a2b'; // Resto de la palabra mantiene su color legible normal
           }
           ctx.fillText(ch, currentX, textMidY);
           currentX += chW;
@@ -815,7 +819,7 @@
 
   // ==========================================
   // OBJETO Y LÓGICA DEL NIVEL 4 (CAVE TYPING)
-  // Con soporte para 10 murciélagos, trayectorias variadas,
+  // Dificultad equilibrada y progresiva (hasta 4 murciélagos),
   // desacoplamiento de piedras y piscinas de memoria fija.
   // ==========================================
   function createCaveLevel(dependencies) {
@@ -831,7 +835,7 @@
     let girlThrowDir = 'side';
     let girlFacingRight = true;
     let graceTimer = 0;
-    let spawnTimer = 0.4;
+    let spawnTimer = 1.2;
     let lastSpawnedInitial = '';
     let wordPool = { short: [], medium: [], long: [] };
     let transitionSent = false;
@@ -864,6 +868,7 @@
         animTime: 0,
         swayOffset: 0,
         signErrorTimer: 0,
+        typoPenaltyTotal: 0,
         vx: 0,
         vy: 0,
         sepX: 0,
@@ -909,9 +914,10 @@
     }
 
     function resetWordPools() {
-      wordPool.short = fisherYatesShuffle(WORD_BANK.short);
-      wordPool.medium = fisherYatesShuffle(WORD_BANK.medium);
-      wordPool.long = fisherYatesShuffle(WORD_BANK.long);
+      const allWords = [...new Set([...WORD_BANK.short, ...WORD_BANK.medium, ...WORD_BANK.long])];
+      wordPool.short = fisherYatesShuffle(allWords.filter(w => w.length >= 3 && w.length <= 5));
+      wordPool.medium = fisherYatesShuffle(allWords.filter(w => w.length >= 4 && w.length <= 6));
+      wordPool.long = fisherYatesShuffle(allWords.filter(w => w.length >= 5 && w.length <= 7));
     }
 
     function init() {
@@ -927,7 +933,7 @@
       girlThrowDir = 'side';
       girlFacingRight = true;
       graceTimer = 0;
-      spawnTimer = 0.35;
+      spawnTimer = 1.2;
       lastSpawnedInitial = '';
       transitionSent = false;
       girlX_offset = 0;
@@ -941,6 +947,8 @@
         b.hasBitten = false;
         b.typedLength = 0;
         b.word = '';
+        b.signErrorTimer = 0;
+        b.typoPenaltyTotal = 0;
         b.sepX = 0;
         b.sepY = 0;
       }
@@ -958,7 +966,10 @@
     // Obtener palabra adecuada según el tercio actual sin repetir iniciales activas
     function getNextWord(category) {
       if (!wordPool[category] || wordPool[category].length === 0) {
-        wordPool[category] = fisherYatesShuffle(WORD_BANK[category]);
+        const allWords = [...new Set([...WORD_BANK.short, ...WORD_BANK.medium, ...WORD_BANK.long])];
+        const minLen = category === 'short' ? 3 : (category === 'medium' ? 4 : 5);
+        const maxLen = category === 'short' ? 5 : (category === 'medium' ? 6 : 7);
+        wordPool[category] = fisherYatesShuffle(allWords.filter(w => w.length >= minLen && w.length <= maxLen));
       }
 
       // Iniciales de todos los murciélagos activos en vuelo o ataque
@@ -1007,9 +1018,9 @@
 
       // Tiempo de llegada justo garantizando BAT_MIN_READ_TIME
       const calcTime = (word.length * BAT_TIME_PER_LETTER + BAT_BASE_TIME) / speedMult;
-      const totalTime = Math.max(BAT_MIN_READ_TIME + 0.6, calcTime);
+      const totalTime = Math.max(BAT_MIN_READ_TIME + 0.8, calcTime);
 
-      // Selección aleatoria del punto de origen fuera de pantalla
+      // Selección aleatoria del punto de origen fuera de pantalla (derecha, arriba, izquierda)
       const dirRoll = Math.random();
       let spawnX = 0;
       let spawnY = 0;
@@ -1021,647 +1032,648 @@
       const girlTargetX = GIRL_X;
       const girlTargetY = CAVE_GROUND_Y - 30;
 
-      if (dirRoll < 0.42) {
-        // Desde la derecha
-        spawnX = dependencies.width + 80;
-        spawnY = 110 + Math.random() * 260;
-        curveType = Math.random() < 0.5 ? 'wave' : 'straight';
-        waveAmp = 14 + Math.random() * 12;
-        controlX = (spawnX + girlTargetX) / 2;
-        controlY = spawnY;
-      } else if (dirRoll < 0.62) {
-        // Diagonal superior derecha
-        spawnX = dependencies.width + 60;
-        spawnY = -60;
-        curveType = 'curve_high';
-        controlX = dependencies.width * 0.7;
-        controlY = 60;
-      } else if (dirRoll < 0.77) {
-        // Desde arriba (techo de la cueva)
-        spawnX = 320 + Math.random() * 540;
-        spawnY = -70;
-        curveType = 'curve_high';
-        controlX = spawnX;
-        controlY = 160 + Math.random() * 80;
-      } else if (dirRoll < 0.90) {
-        // Diagonal superior izquierda
-        spawnX = -70;
-        spawnY = -60;
-        curveType = 'curve_high';
-        controlX = 80;
-        controlY = 70;
-      } else {
-        // Desde la izquierda
-        spawnX = -80;
-        spawnY = 130 + Math.random() * 240;
-        curveType = 'straight';
-        controlX = (spawnX + girlTargetX) / 2;
-        controlY = spawnY;
-      }
+        if (dirRoll < 0.45) {
+          // Desde la derecha (trayectoria suave y recta)
+          spawnX = dependencies.width + 80;
+          spawnY = 120 + Math.random() * 240;
+          curveType = 'straight';
+          controlX = (spawnX + girlTargetX) / 2;
+        controlY = (spawnY + girlTargetY) / 2;
+        } else if (dirRoll < 0.75) {
+          // Desde arriba (techo de la cueva, suave descenso en curva)
+          spawnX = 300 + Math.random() * 520;
+          spawnY = -70;
+          curveType = 'curve_high';
+          controlX = spawnX;
+          controlY = 130 + Math.random() * 60;
+        } else {
+          // Desde la izquierda (trayectoria suave y recta)
+          spawnX = -80;
+          spawnY = 130 + Math.random() * 230;
+          curveType = 'straight';
+          controlX = (spawnX + girlTargetX) / 2;
+        controlY = (spawnY + girlTargetY) / 2;
+        }
 
-      bat.active = true;
-      bat.markedForRemoval = false;
-      bat.word = word;
-      bat.typedLength = 0;
-      bat.x = spawnX;
-      bat.y = spawnY;
-      bat.spawnX = spawnX;
-      bat.spawnY = spawnY;
-      bat.targetX = girlTargetX;
-      bat.targetY = girlTargetY;
-      bat.controlX = controlX;
-      bat.controlY = controlY;
-      bat.curveType = curveType;
-      bat.waveAmp = waveAmp;
-      bat.progress = 0;
-      bat.totalTime = totalTime;
-      bat.state = 'flying';
-      bat.hasBitten = false;
-      bat.animTime = Math.random() * 6;
-      bat.swayOffset = Math.random() * 10;
-      bat.signErrorTimer = 0;
-      bat.vx = (girlTargetX >= spawnX) ? 120 : -120;
-      bat.vy = 0;
-      bat.sepX = 0;
-      bat.sepY = 0;
+        bat.active = true;
+        bat.markedForRemoval = false;
+        bat.word = word;
+        bat.typedLength = 0;
+        bat.x = spawnX;
+        bat.y = spawnY;
+        bat.spawnX = spawnX;
+        bat.spawnY = spawnY;
+        bat.targetX = girlTargetX;
+        bat.targetY = girlTargetY;
+        bat.controlX = controlX;
+        bat.controlY = controlY;
+        bat.curveType = curveType;
+        bat.waveAmp = waveAmp;
+        bat.progress = 0;
+        bat.totalTime = totalTime;
+        bat.state = 'flying';
+        bat.hasBitten = false;
+        bat.animTime = Math.random() * 6;
+        bat.swayOffset = Math.random() * 10;
+        bat.signErrorTimer = 0;
+        bat.typoPenaltyTotal = 0;
+        bat.vx = (girlTargetX >= spawnX) ? 120 : -120;
+        bat.vy = 0;
+        bat.sepX = 0;
+        bat.sepY = 0;
 
-      if (dependencies.audio && dependencies.audio.sfxBatFlap) {
-        dependencies.audio.sfxBatFlap();
-      }
-    }
-
-    // Ejecutar mordida (exactamente 1 vida una sola vez con bandera hasBitten)
-    function executeBite(bat) {
-      if (bat.hasBitten) return;
-      bat.hasBitten = true;
-      bat.state = 'retreating';
-      bat.vx = (bat.x >= GIRL_X ? 1 : -1) * 440;
-      bat.vy = -280;
-
-      dependencies.gameState.lives = Math.max(0, dependencies.gameState.lives - 1);
-      invulTimer = 1.0;
-      girlHurtTimer = 0.5;
-      streak = 0;
-      graceTimer = 1.0;
-
-      if (dependencies.audio && dependencies.audio.sfxBite) {
-        dependencies.audio.sfxBite();
-      }
-
-      if (dependencies.gameState.lives <= 0) {
-        gameOver = true;
-      }
-    }
-
-    // Derrotar murciélago: instantáneamente marcado como derrotado y liberado del target,
-    // mientras la piedra sale en arco hacia él con animación dirigida
-    function defeatBat(targetBat) {
-      if (!targetBat) return;
-
-      targetBat.state = 'defeated';
-      targetBat.hasBitten = true; // Jamás podrá morder
-      if (activeBat === targetBat) activeBat = null; // Liberado de inmediato
-
-      // Orientar a la niña hacia la posición del murciélago
-      const batX = Number.isFinite(targetBat.x) ? targetBat.x : GIRL_X;
-      const batY = Number.isFinite(targetBat.y) ? targetBat.y : CAVE_GROUND_Y - 100;
-      girlFacingRight = batX >= GIRL_X;
-      girlThrowTimer = 0.25;
-      girlThrowDir = batY < CAVE_GROUND_Y - 220 ? 'up' : 'side';
-
-      // Buscar proyectil libre en el pool (o reutilizar el más antiguo)
-      let stone = null;
-      for (let i = 0; i < PROJ_POOL_SIZE; i++) {
-        if (!projPool[i].active) {
-          stone = projPool[i];
-          break;
+        if (dependencies.audio && dependencies.audio.sfxBatFlap) {
+          dependencies.audio.sfxBatFlap();
         }
       }
-      if (!stone) {
-        let maxElapsed = -1;
+
+      // Ejecutar mordida (exactamente 1 vida una sola vez con bandera hasBitten)
+      function executeBite(bat) {
+        if (bat.hasBitten) return;
+        bat.hasBitten = true;
+        bat.state = 'retreating';
+        bat.vx = (bat.x >= GIRL_X ? 1 : -1) * 440;
+        bat.vy = -280;
+
+      if (activeBat === bat) {
+        activeBat = null;
+      }
+
+      dependencies.gameState.lives = Math.max(0, dependencies.gameState.lives - 1);
+        invulTimer = 1.0;
+        girlHurtTimer = 0.5;
+        streak = 0;
+        graceTimer = 1.0;
+
+        if (dependencies.audio && dependencies.audio.sfxBite) {
+          dependencies.audio.sfxBite();
+        }
+
+        if (dependencies.gameState.lives <= 0) {
+          gameOver = true;
+        }
+      }
+
+      // Derrotar murciélago: instantáneamente marcado como derrotado y liberado del target,
+      // mientras la piedra sale en arco hacia él con animación dirigida
+      function defeatBat(targetBat) {
+        if (!targetBat) return;
+
+        targetBat.state = 'defeated';
+        targetBat.hasBitten = true; // Jamás podrá morder
+        if (activeBat === targetBat) activeBat = null; // Liberado de inmediato
+
+        // Orientar a la niña hacia la posición del murciélago
+        const batX = Number.isFinite(targetBat.x) ? targetBat.x : GIRL_X;
+        const batY = Number.isFinite(targetBat.y) ? targetBat.y : CAVE_GROUND_Y - 100;
+        girlFacingRight = batX >= GIRL_X;
+        girlThrowTimer = 0.25;
+        girlThrowDir = batY < CAVE_GROUND_Y - 220 ? 'up' : 'side';
+
+        // Buscar proyectil libre en el pool (o reutilizar el más antiguo)
+        let stone = null;
         for (let i = 0; i < PROJ_POOL_SIZE; i++) {
-          if (projPool[i].elapsed > maxElapsed) {
-            maxElapsed = projPool[i].elapsed;
+          if (!projPool[i].active) {
             stone = projPool[i];
+            break;
+          }
+        }
+        if (!stone) {
+          let maxElapsed = -1;
+          for (let i = 0; i < PROJ_POOL_SIZE; i++) {
+            if (projPool[i].elapsed > maxElapsed) {
+              maxElapsed = projPool[i].elapsed;
+              stone = projPool[i];
+            }
+          }
+        }
+
+        if (stone) {
+          const handX = GIRL_X + (girlFacingRight ? 1 : -1) * (girlThrowDir === 'up' ? 10 : 18);
+          const handY = CAVE_GROUND_Y - (girlThrowDir === 'up' ? 38 : 28);
+          const sepX = Number.isFinite(targetBat.sepX) ? targetBat.sepX : 0;
+          const sepY = Number.isFinite(targetBat.sepY) ? targetBat.sepY : 0;
+
+          stone.active = true;
+          stone.startX = handX;
+          stone.startY = handY;
+          stone.targetBat = targetBat;
+          stone.targetX = batX + sepX;
+          stone.targetY = batY + sepY;
+          stone.currentX = handX;
+          stone.currentY = handY;
+          stone.elapsed = 0;
+          stone.duration = STONE_FLIGHT_TIME;
+          stone.rot = 0;
+
+          const dx = Math.abs(stone.targetX - stone.startX);
+          stone.arcHeight = Math.max(30, Math.min(80, dx * 0.18));
+        }
+
+        if (dependencies.audio && dependencies.audio.sfxThrow) {
+          dependencies.audio.sfxThrow();
+        }
+      }
+
+      // Estrellitas al golpear (piscina fija de partículas)
+      function spawnHitSparkles(x, y) {
+        const colors = ['#ffe17d', '#86ebfc', '#ffaad0', '#ffffff'];
+        let count = 0;
+        for (let i = 0; i < SPARKLE_POOL_SIZE && count < 6; i++) {
+          const s = sparklePool[i];
+          if (!s.active) {
+            s.active = true;
+            s.x = x;
+            s.y = y;
+            s.vx = (Math.random() - 0.5) * 260;
+            s.vy = (Math.random() - 0.5) * 260;
+            s.color = colors[count % colors.length];
+            s.size = 5 + Math.random() * 3.5;
+            s.rot = Math.random() * Math.PI * 2;
+            s.vrot = (Math.random() - 0.5) * 8;
+            s.life = 0.45;
+            s.maxLife = 0.45;
+            count++;
           }
         }
       }
 
-      if (stone) {
-        const handX = GIRL_X + (girlFacingRight ? 1 : -1) * (girlThrowDir === 'up' ? 10 : 18);
-        const handY = CAVE_GROUND_Y - (girlThrowDir === 'up' ? 38 : 28);
-        const sepX = Number.isFinite(targetBat.sepX) ? targetBat.sepX : 0;
-        const sepY = Number.isFinite(targetBat.sepY) ? targetBat.sepY : 0;
+      function update(dt) {
+        try {
+          if (dependencies.isPaused() || gameOver) return;
 
-        stone.active = true;
-        stone.startX = handX;
-        stone.startY = handY;
-        stone.targetBat = targetBat;
-        stone.targetX = batX + sepX;
-        stone.targetY = batY + sepY;
-        stone.currentX = handX;
-        stone.currentY = handY;
-        stone.elapsed = 0;
-        stone.duration = STONE_FLIGHT_TIME;
-        stone.rot = 0;
+          // Animación de victoria y salida
+          if (completed) {
+            for (let i = 0; i < BAT_POOL_SIZE; i++) {
+              const b = batPool[i];
+              if (b.active) {
+                b.x += (b.vx >= 0 ? 420 : -420) * dt;
+                b.y -= 190 * dt;
+                b.animTime += dt;
+                if (b.x < -160 || b.x > dependencies.width + 160 || b.y < -160) {
+                  b.active = false;
+                }
+              }
+            }
 
-        const dx = Math.abs(stone.targetX - stone.startX);
-        stone.arcHeight = Math.max(30, Math.min(80, dx * 0.18));
-      }
+            girlFacingRight = true;
+            girlX_offset += 210 * dt;
+            if (girlX_offset > dependencies.width - GIRL_X + 80 && !transitionSent) {
+              transitionSent = true;
+              dependencies.switchState(dependencies.states.QUAKE_CINEMATIC || dependencies.states.LEVEL3, 0.035, 0.4);
+            }
+            return;
+          }
 
-      if (dependencies.audio && dependencies.audio.sfxThrow) {
-        dependencies.audio.sfxThrow();
-      }
-    }
+          timer += dt;
+          tutorialTimer = Math.max(0, tutorialTimer - dt);
+          invulTimer = Math.max(0, invulTimer - dt);
+          girlHurtTimer = Math.max(0, girlHurtTimer - dt);
+          if (girlThrowTimer > 0) girlThrowTimer = Math.max(0, girlThrowTimer - dt);
+          graceTimer = Math.max(0, graceTimer - dt);
 
-    // Estrellitas al golpear (piscina fija de partículas)
-    function spawnHitSparkles(x, y) {
-      const colors = ['#ffe17d', '#86ebfc', '#ffaad0', '#ffffff'];
-      let count = 0;
-      for (let i = 0; i < SPARKLE_POOL_SIZE && count < 6; i++) {
-        const s = sparklePool[i];
-        if (!s.active) {
-          s.active = true;
-          s.x = x;
-          s.y = y;
-          s.vx = (Math.random() - 0.5) * 260;
-          s.vy = (Math.random() - 0.5) * 260;
-          s.color = colors[count % colors.length];
-          s.size = 5 + Math.random() * 3.5;
-          s.rot = Math.random() * Math.PI * 2;
-          s.vrot = (Math.random() - 0.5) * 8;
-          s.life = 0.45;
-          s.maxLife = 0.45;
-          count++;
+          // Fin del tiempo de nivel
+          if (timer >= LEVEL4_DURATION) {
+            completed = true;
+            activeBat = null;
+            for (let i = 0; i < BAT_POOL_SIZE; i++) {
+              if (batPool[i].active) batPool[i].state = 'fleeing';
+            }
+            return;
+          }
+
+          // Dificultad progresiva por tercios
+          const prog = Math.min(1, timer / LEVEL4_DURATION);
+          let maxSimul = 2;
+          let tier = 'short';
+          let speedMult = 1.0;
+
+          if (prog >= 0.66) {
+            maxSimul = BAT_MAX_SIMULTANEOUS; // 3 a 4 murciélagos como máximo
+            tier = 'long';
+            speedMult = BAT_SPEED_RAMP;      // 1.10 (máximo 10% en último tercio)
+          } else if (prog >= 0.33) {
+            maxSimul = 3;                    // 2 a 3 murciélagos
+            tier = 'medium';
+            speedMult = 1.05;                // Aumento intermedio suave (5%)
+          } else {
+            maxSimul = 2;                    // 1 a 2 murciélagos
+            tier = 'short';
+            speedMult = 1.0;
+          }
+
+          // Conteo de letras pendientes y murciélagos activos
+          let totalPendingLetters = 0;
+          let activeFlyingCount = 0;
+          for (let i = 0; i < BAT_POOL_SIZE; i++) {
+            const b = batPool[i];
+            if (b.active && (b.state === 'flying' || b.state === 'attacking')) {
+              totalPendingLetters += (b.word.length - b.typedLength);
+              activeFlyingCount++;
+            }
+          }
+
+          // Aparición escalonada
+          if (graceTimer <= 0 && activeFlyingCount < maxSimul && totalPendingLetters < BAT_MAX_PENDING_LETTERS) {
+            spawnTimer -= dt;
+            if (spawnTimer <= 0) {
+              spawnBat(tier, speedMult);
+              spawnTimer = BAT_SPAWN_MIN + Math.random() * (BAT_SPAWN_MAX - BAT_SPAWN_MIN);
+            }
+          }
+
+          // Separación anticolisión entre murciélagos para que no se encimen los carteles
+          for (let i = 0; i < BAT_POOL_SIZE; i++) {
+            const b1 = batPool[i];
+            if (!b1.active || (b1.state !== 'flying' && b1.state !== 'attacking')) continue;
+
+            for (let j = i + 1; j < BAT_POOL_SIZE; j++) {
+              const b2 = batPool[j];
+              if (!b2.active || (b2.state !== 'flying' && b2.state !== 'attacking')) continue;
+
+              const dx = (b1.x + b1.sepX) - (b2.x + b2.sepX);
+              const dy = (b1.y + b1.sepY) - (b2.y + b2.sepY);
+              const dist = Math.hypot(dx, dy);
+
+              if (dist < BAT_MIN_SEPARATION && dist > 0.01) {
+                const overlap = (BAT_MIN_SEPARATION - dist) * 0.5;
+                const nx = dx / dist;
+                const ny = dy / dist;
+                b1.sepX += nx * overlap * 3.6 * dt;
+                b1.sepY += ny * overlap * 3.6 * dt;
+                b2.sepX -= nx * overlap * 3.6 * dt;
+                b2.sepY -= ny * overlap * 3.6 * dt;
+              }
+            }
+
+            // Amortiguación
+            b1.sepX *= Math.pow(0.85, dt * 60);
+            b1.sepY *= Math.pow(0.85, dt * 60);
+          }
+
+          // Actualizar murciélagos
+          for (let i = 0; i < BAT_POOL_SIZE; i++) {
+            const b = batPool[i];
+            if (!b.active) continue;
+
+            b.animTime += dt;
+            if (b.signErrorTimer > 0) b.signErrorTimer -= dt;
+
+            if (b.state === 'flying') {
+              b.progress += dt / b.totalTime;
+              const t = Math.min(1, b.progress);
+
+              // Trayectoria suave (bezier paramétrica)
+              const omt = 1 - t;
+              let nx = omt * omt * b.spawnX + 2 * omt * t * b.controlX + t * t * b.targetX;
+              let ny = omt * omt * b.spawnY + 2 * omt * t * b.controlY + t * t * b.targetY;
+
+              if (b.curveType === 'wave') {
+                ny += Math.sin(b.animTime * 3) * b.waveAmp;
+              }
+
+              // Orientación
+              b.vx = nx - b.x;
+              b.vy = ny - b.y;
+              b.x = nx;
+              b.y = ny;
+
+              if (b.progress >= 1) {
+                executeBite(b);
+                if (activeBat === b) activeBat = null;
+              }
+            } else if (b.state === 'attacking') {
+              const dx = b.targetX - b.x;
+              const dy = b.targetY - b.y;
+              const dist = Math.hypot(dx, dy);
+              if (dist < 22) {
+                executeBite(b);
+                if (activeBat === b) activeBat = null;
+              } else {
+                const spd = 700 * dt;
+                b.vx = (dx / dist) * spd;
+                b.vy = (dy / dist) * spd;
+                b.x += b.vx;
+                b.y += b.vy;
+              }
+            } else if (b.state === 'defeated') {
+              // El murciélago espera el impacto de la piedra frenando suavemente
+              b.y += Math.sin(b.animTime * 4) * 8 * dt;
+            } else if (b.state === 'hit' || b.state === 'retreating' || b.state === 'fleeing') {
+              b.x += b.vx * dt;
+              b.y += b.vy * dt;
+              if (b.x < -160 || b.x > dependencies.width + 160 || b.y < -160 || b.y > dependencies.height + 120) {
+                b.markedForRemoval = true;
+              }
+            }
+          }
+
+          // Actualizar proyectiles (piedras en arco fluido hacia el murciélago)
+          for (let i = 0; i < PROJ_POOL_SIZE; i++) {
+            const p = projPool[i];
+            if (!p.active) continue;
+
+            p.elapsed += dt;
+            const dur = Math.max(0.05, p.duration);
+            const t = Math.min(1, Math.max(0, p.elapsed / dur));
+
+            // Seguir dinámicamente la posición del murciélago objetivo
+            if (p.targetBat && p.targetBat.active) {
+              const sepX = Number.isFinite(p.targetBat.sepX) ? p.targetBat.sepX : 0;
+              const sepY = Number.isFinite(p.targetBat.sepY) ? p.targetBat.sepY : 0;
+              if (Number.isFinite(p.targetBat.x)) p.targetX = p.targetBat.x + sepX;
+              if (Number.isFinite(p.targetBat.y)) p.targetY = p.targetBat.y + sepY;
+            }
+
+            p.currentX = p.startX + (p.targetX - p.startX) * t;
+            const linearY = p.startY + (p.targetY - p.startY) * t;
+            const arc = 4 * p.arcHeight * t * (1 - t);
+            p.currentY = linearY - arc;
+            p.rot += 14 * dt;
+
+            if (t >= 1) {
+              p.active = false;
+              const target = p.targetBat;
+              if (target && target.active && target.state === 'defeated') {
+                target.state = 'hit';
+                const facingDir = target.x >= GIRL_X ? 1 : -1;
+                target.vx = facingDir * (380 + Math.random() * 80);
+                target.vy = -300 - Math.random() * 70;
+                streak++;
+
+                if (dependencies.audio && dependencies.audio.sfxStoneHit) {
+                  dependencies.audio.sfxStoneHit();
+                }
+
+                const hitX = target.x + (Number.isFinite(target.sepX) ? target.sepX : 0);
+                const hitY = target.y + (Number.isFinite(target.sepY) ? target.sepY : 0);
+                spawnHitSparkles(hitX, hitY);
+              }
+            }
+          }
+
+          // Actualizar partículas
+          for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
+            const s = sparklePool[i];
+            if (!s.active) continue;
+            s.x += s.vx * dt;
+            s.y += s.vy * dt;
+            s.rot += s.vrot * dt;
+            s.life -= dt;
+            if (s.life <= 0) s.active = false;
+          }
+
+          // Limpieza segura al final del frame para devolver al pool
+          for (let i = 0; i < BAT_POOL_SIZE; i++) {
+            const b = batPool[i];
+            if (b.active && b.markedForRemoval) {
+              b.active = false;
+              b.markedForRemoval = false;
+              b.state = 'flying';
+              b.hasBitten = false;
+              b.typedLength = 0;
+              b.word = '';
+              b.signErrorTimer = 0;
+              b.typoPenaltyTotal = 0;
+              b.sepX = 0;
+              b.sepY = 0;
+            }
+          }
+
+          // Limpiar objetivo activo si ya no es válido
+          if (activeBat && (!activeBat.active || (activeBat.state !== 'flying' && activeBat.state !== 'attacking'))) {
+            activeBat = null;
+          }
+        } catch (err) {
+          console.error('Error en caveLevel.update:', err);
         }
       }
-    }
 
-    function update(dt) {
-      try {
-        if (dependencies.isPaused() || gameOver) return;
+      function draw(ctx) {
+        try {
+          buildCaveOffscreens(dependencies.width, dependencies.height);
 
-        // Animación de victoria y salida
-        if (completed) {
+          // 1. Fondos pre-renderizados en capas
+          ctx.drawImage(caveBgCanvas, 0, 0);
+          ctx.drawImage(caveMidCanvas, 0, 0);
+          ctx.drawImage(caveForeCanvas, 0, 0);
+
+          // 2. Niña: parada sobre el suelo, quieta (sin sombra ovalada debajo)
+          const currentGirlX = GIRL_X + girlX_offset;
+          let girlAnim = 'idle';
+          if (completed) girlAnim = 'run';
+          else if (girlHurtTimer > 0) girlAnim = 'hurt';
+          else if (girlThrowTimer > 0) girlAnim = 'throw';
+
+          const blinkVisible = dependencies.isPlayerBlinkVisible(invulTimer);
+          if (blinkVisible) {
+            dependencies.drawGirl(ctx, currentGirlX, CAVE_GROUND_Y, {
+              state: girlAnim,
+              facingRight: girlFacingRight,
+              throwDir: girlThrowDir,
+              animTime: timer,
+              hasDuck: false
+            });
+          }
+
+          // 3. Proyectiles (piedras en vuelo con arco y rotación)
+          for (let i = 0; i < PROJ_POOL_SIZE; i++) {
+            const p = projPool[i];
+            if (!p.active) continue;
+            if (!Number.isFinite(p.currentX) || !Number.isFinite(p.currentY)) continue;
+
+            ctx.save();
+            try {
+              ctx.translate(p.currentX, p.currentY);
+              ctx.rotate(Number.isFinite(p.rot) ? p.rot : 0);
+
+              ctx.fillStyle = '#827166';
+              ctx.beginPath();
+              ctx.ellipse(0, 0, 6.5, 5, 0, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.fillStyle = '#b09f92';
+              ctx.beginPath();
+              ctx.arc(-1.5, -1.2, 2.2, 0, Math.PI * 2);
+              ctx.fill();
+            } finally {
+              ctx.restore();
+            }
+          }
+
+          // 4. Estrellitas por código al impactar
+          for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
+            const s = sparklePool[i];
+            if (!s.active) continue;
+            drawSparkleStar(ctx, s.x, s.y, s.size * (s.life / s.maxLife), s.color, s.rot);
+          }
+
+          // 5. Murciélagos activos
           for (let i = 0; i < BAT_POOL_SIZE; i++) {
             const b = batPool[i];
             if (b.active) {
-              b.x += (b.vx >= 0 ? 420 : -420) * dt;
-              b.y -= 190 * dt;
-              b.animTime += dt;
-              if (b.x < -160 || b.x > dependencies.width + 160 || b.y < -160) {
-                b.active = false;
-              }
+              drawBat(ctx, b, b === activeBat);
             }
           }
 
-          girlFacingRight = true;
-          girlX_offset += 210 * dt;
-          if (girlX_offset > dependencies.width - GIRL_X + 80 && !transitionSent) {
-            transitionSent = true;
-            dependencies.switchState(dependencies.states.LEVEL3, 0.035, 0.4);
+          // 6. HUD y textos
+          drawHUD(ctx);
+
+          // 7. Modal Game Over si pierde las vidas
+          if (gameOver) {
+            dependencies.drawGameOverModal(
+              ctx,
+              () => {
+                gameOver = false;
+                dependencies.gameState.retryLevel();
+                init();
+              },
+              () => {
+                gameOver = false;
+                dependencies.gameState.resetLives(3);
+                dependencies.switchState(dependencies.states.MENU);
+              }
+            );
           }
-          return;
+
+          // 8. Modo de depuración opcional F3
+          if (debugMode) {
+            drawDebugOverlay(ctx);
+          }
+        } catch (err) {
+          console.error('Error en caveLevel.draw:', err);
         }
+      }
 
-        timer += dt;
-        tutorialTimer = Math.max(0, tutorialTimer - dt);
-        invulTimer = Math.max(0, invulTimer - dt);
-        girlHurtTimer = Math.max(0, girlHurtTimer - dt);
-        if (girlThrowTimer > 0) girlThrowTimer = Math.max(0, girlThrowTimer - dt);
-        graceTimer = Math.max(0, graceTimer - dt);
-
-        // Fin del tiempo de nivel
-        if (timer >= LEVEL4_DURATION) {
-          completed = true;
-          activeBat = null;
+      function drawDebugOverlay(ctx) {
+        ctx.save();
+        try {
+          ctx.font = '600 13px monospace, sans-serif';
+          let activeCount = 0;
+          let flyingCount = 0;
+          let defeatedCount = 0;
           for (let i = 0; i < BAT_POOL_SIZE; i++) {
-            if (batPool[i].active) batPool[i].state = 'fleeing';
-          }
-          return;
-        }
-
-        // Dificultad progresiva por tercios
-        const prog = Math.min(1, timer / LEVEL4_DURATION);
-        let maxSimul = 4;
-        let tier = 'short';
-        let speedMult = 1.0;
-
-        if (prog >= 0.66) {
-          maxSimul = BAT_MAX_SIMULTANEOUS; // Hasta 10 murciélagos
-          tier = 'long';
-          speedMult = BAT_SPEED_RAMP;
-        } else if (prog >= 0.33) {
-          maxSimul = 7;                    // Hasta 7 murciélagos
-          tier = 'medium';
-          speedMult = 1.10;
-        }
-
-        // Conteo de letras pendientes y murciélagos activos
-        let totalPendingLetters = 0;
-        let activeFlyingCount = 0;
-        for (let i = 0; i < BAT_POOL_SIZE; i++) {
-          const b = batPool[i];
-          if (b.active && (b.state === 'flying' || b.state === 'attacking')) {
-            totalPendingLetters += (b.word.length - b.typedLength);
-            activeFlyingCount++;
-          }
-        }
-
-        // Aparición escalonada
-        if (graceTimer <= 0 && activeFlyingCount < maxSimul && totalPendingLetters < BAT_MAX_PENDING_LETTERS) {
-          spawnTimer -= dt;
-          if (spawnTimer <= 0) {
-            spawnBat(tier, speedMult);
-            spawnTimer = BAT_SPAWN_MIN + Math.random() * (BAT_SPAWN_MAX - BAT_SPAWN_MIN);
-          }
-        }
-
-        // Separación anticolisión entre murciélagos para que no se encimen los carteles
-        for (let i = 0; i < BAT_POOL_SIZE; i++) {
-          const b1 = batPool[i];
-          if (!b1.active || (b1.state !== 'flying' && b1.state !== 'attacking')) continue;
-
-          for (let j = i + 1; j < BAT_POOL_SIZE; j++) {
-            const b2 = batPool[j];
-            if (!b2.active || (b2.state !== 'flying' && b2.state !== 'attacking')) continue;
-
-            const dx = (b1.x + b1.sepX) - (b2.x + b2.sepX);
-            const dy = (b1.y + b1.sepY) - (b2.y + b2.sepY);
-            const dist = Math.hypot(dx, dy);
-
-            if (dist < BAT_MIN_SEPARATION && dist > 0.01) {
-              const overlap = (BAT_MIN_SEPARATION - dist) * 0.5;
-              const nx = dx / dist;
-              const ny = dy / dist;
-              b1.sepX += nx * overlap * 3.6 * dt;
-              b1.sepY += ny * overlap * 3.6 * dt;
-              b2.sepX -= nx * overlap * 3.6 * dt;
-              b2.sepY -= ny * overlap * 3.6 * dt;
+            if (batPool[i].active) {
+              activeCount++;
+              if (batPool[i].state === 'flying' || batPool[i].state === 'attacking') flyingCount++;
+              else if (batPool[i].state === 'defeated') defeatedCount++;
             }
           }
-
-          // Amortiguación
-          b1.sepX *= Math.pow(0.85, dt * 60);
-          b1.sepY *= Math.pow(0.85, dt * 60);
-        }
-
-        // Actualizar murciélagos
-        for (let i = 0; i < BAT_POOL_SIZE; i++) {
-          const b = batPool[i];
-          if (!b.active) continue;
-
-          b.animTime += dt;
-          if (b.signErrorTimer > 0) b.signErrorTimer -= dt;
-
-          if (b.state === 'flying') {
-            b.progress += dt / b.totalTime;
-            const t = Math.min(1, b.progress);
-
-            // Trayectoria suave (bezier paramétrica)
-            const omt = 1 - t;
-            let nx = omt * omt * b.spawnX + 2 * omt * t * b.controlX + t * t * b.targetX;
-            let ny = omt * omt * b.spawnY + 2 * omt * t * b.controlY + t * t * b.targetY;
-
-            if (b.curveType === 'wave') {
-              ny += Math.sin(b.animTime * 3) * b.waveAmp;
-            }
-
-            // Orientación
-            b.vx = nx - b.x;
-            b.vy = ny - b.y;
-            b.x = nx;
-            b.y = ny;
-
-            if (b.progress >= 1) {
-              executeBite(b);
-              if (activeBat === b) activeBat = null;
-            }
-          } else if (b.state === 'attacking') {
-            const dx = b.targetX - b.x;
-            const dy = b.targetY - b.y;
-            const dist = Math.hypot(dx, dy);
-            if (dist < 22) {
-              executeBite(b);
-              if (activeBat === b) activeBat = null;
-            } else {
-              const spd = 700 * dt;
-              b.vx = (dx / dist) * spd;
-              b.vy = (dy / dist) * spd;
-              b.x += b.vx;
-              b.y += b.vy;
-            }
-          } else if (b.state === 'defeated') {
-            // El murciélago espera el impacto de la piedra frenando suavemente
-            b.y += Math.sin(b.animTime * 4) * 8 * dt;
-          } else if (b.state === 'hit' || b.state === 'retreating' || b.state === 'fleeing') {
-            b.x += b.vx * dt;
-            b.y += b.vy * dt;
-            if (b.x < -160 || b.x > dependencies.width + 160 || b.y < -160 || b.y > dependencies.height + 120) {
-              b.markedForRemoval = true;
-            }
+          let stonesCount = 0;
+          for (let i = 0; i < PROJ_POOL_SIZE; i++) {
+            if (projPool[i].active) stonesCount++;
           }
-        }
-
-        // Actualizar proyectiles (piedras en arco fluido hacia el murciélago)
-        for (let i = 0; i < PROJ_POOL_SIZE; i++) {
-          const p = projPool[i];
-          if (!p.active) continue;
-
-          p.elapsed += dt;
-          const dur = Math.max(0.05, p.duration);
-          const t = Math.min(1, Math.max(0, p.elapsed / dur));
-
-          // Seguir dinámicamente la posición del murciélago objetivo
-          if (p.targetBat && p.targetBat.active) {
-            const sepX = Number.isFinite(p.targetBat.sepX) ? p.targetBat.sepX : 0;
-            const sepY = Number.isFinite(p.targetBat.sepY) ? p.targetBat.sepY : 0;
-            if (Number.isFinite(p.targetBat.x)) p.targetX = p.targetBat.x + sepX;
-            if (Number.isFinite(p.targetBat.y)) p.targetY = p.targetBat.y + sepY;
+          let sparklesCount = 0;
+          for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
+            if (sparklePool[i].active) sparklesCount++;
           }
 
-          p.currentX = p.startX + (p.targetX - p.startX) * t;
-          const linearY = p.startY + (p.targetY - p.startY) * t;
-          const arc = 4 * p.arcHeight * t * (1 - t);
-          p.currentY = linearY - arc;
-          p.rot += 14 * dt;
+          const lines = [
+            '[F3] DEPURE CUEVA (NIVEL 4)',
+            `Estado: ${completed ? 'COMPLETADO' : (gameOver ? 'GAME OVER' : 'JUGANDO')}`,
+            `Murciélagos activos: ${activeCount} (volando: ${flyingCount}, derrotados: ${defeatedCount})`,
+            `Piedras en aire: ${stonesCount} / ${PROJ_POOL_SIZE}`,
+            `Partículas: ${sparklesCount} / ${SPARKLE_POOL_SIZE}`,
+            `Objetivo activo: ${activeBat ? activeBat.word + ' (' + activeBat.typedLength + '/' + activeBat.word.length + ')' : '(ninguno)'}`,
+            `Tiempo: ${timer.toFixed(1)}s / ${LEVEL4_DURATION}s | Racha: ${streak}`
+          ];
 
-          if (t >= 1) {
-            p.active = false;
-            const target = p.targetBat;
-            if (target && target.active && target.state === 'defeated') {
-              target.state = 'hit';
-              const facingDir = target.x >= GIRL_X ? 1 : -1;
-              target.vx = facingDir * (380 + Math.random() * 80);
-              target.vy = -300 - Math.random() * 70;
-              streak++;
+          const boxW = 360;
+          const boxH = lines.length * 18 + 16;
+          ctx.fillStyle = 'rgba(15, 10, 24, 0.85)';
+          ctx.strokeStyle = '#9d72d6';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.roundRect(16, 75, boxW, boxH, 8);
+          ctx.fill();
+          ctx.stroke();
 
-              if (dependencies.audio && dependencies.audio.sfxStoneHit) {
-                dependencies.audio.sfxStoneHit();
-              }
-
-              const hitX = target.x + (Number.isFinite(target.sepX) ? target.sepX : 0);
-              const hitY = target.y + (Number.isFinite(target.sepY) ? target.sepY : 0);
-              spawnHitSparkles(hitX, hitY);
-            }
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'top';
+          for (let i = 0; i < lines.length; i++) {
+            ctx.fillStyle = i === 0 ? '#ffe27a' : '#d8d4ff';
+            ctx.fillText(lines[i], 26, 85 + i * 18);
           }
+        } catch (err) {
+          console.error('Error en drawDebugOverlay:', err);
+        } finally {
+          ctx.restore();
         }
-
-        // Actualizar partículas
-        for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
-          const s = sparklePool[i];
-          if (!s.active) continue;
-          s.x += s.vx * dt;
-          s.y += s.vy * dt;
-          s.rot += s.vrot * dt;
-          s.life -= dt;
-          if (s.life <= 0) s.active = false;
-        }
-
-        // Limpieza segura al final del frame para devolver al pool
-        for (let i = 0; i < BAT_POOL_SIZE; i++) {
-          const b = batPool[i];
-          if (b.active && b.markedForRemoval) {
-            b.active = false;
-            b.markedForRemoval = false;
-            b.state = 'flying';
-            b.hasBitten = false;
-            b.typedLength = 0;
-            b.word = '';
-            b.sepX = 0;
-            b.sepY = 0;
-          }
-        }
-
-        // Limpiar objetivo activo si ya no es válido
-        if (activeBat && (!activeBat.active || (activeBat.state !== 'flying' && activeBat.state !== 'attacking'))) {
-          activeBat = null;
-        }
-      } catch (err) {
-        console.error('Error en caveLevel.update:', err);
       }
-    }
 
-    function draw(ctx) {
-      try {
-        buildCaveOffscreens(dependencies.width, dependencies.height);
-
-        // 1. Fondos pre-renderizados en capas
-        ctx.drawImage(caveBgCanvas, 0, 0);
-        ctx.drawImage(caveMidCanvas, 0, 0);
-        ctx.drawImage(caveForeCanvas, 0, 0);
-
-        // 2. Niña: parada sobre el suelo, quieta (sin sombra ovalada debajo)
-        const currentGirlX = GIRL_X + girlX_offset;
-        let girlAnim = 'idle';
-        if (completed) girlAnim = 'run';
-        else if (girlHurtTimer > 0) girlAnim = 'hurt';
-        else if (girlThrowTimer > 0) girlAnim = 'throw';
-
-        const blinkVisible = dependencies.isPlayerBlinkVisible(invulTimer);
-        if (blinkVisible) {
-          dependencies.drawGirl(ctx, currentGirlX, CAVE_GROUND_Y, {
-            state: girlAnim,
-            facingRight: girlFacingRight,
-            throwDir: girlThrowDir,
-            animTime: timer,
-            hasDuck: false
-          });
-        }
-
-        // 3. Proyectiles (piedras en vuelo con arco y rotación)
-        for (let i = 0; i < PROJ_POOL_SIZE; i++) {
-          const p = projPool[i];
-          if (!p.active) continue;
-          if (!Number.isFinite(p.currentX) || !Number.isFinite(p.currentY)) continue;
-
+      function drawHUD(ctx) {
+        if (tutorialTimer > 0) {
           ctx.save();
-          try {
-            ctx.translate(p.currentX, p.currentY);
-            ctx.rotate(Number.isFinite(p.rot) ? p.rot : 0);
-
-            ctx.fillStyle = '#827166';
-            ctx.beginPath();
-            ctx.ellipse(0, 0, 6.5, 5, 0, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.fillStyle = '#b09f92';
-            ctx.beginPath();
-            ctx.arc(-1.5, -1.2, 2.2, 0, Math.PI * 2);
-            ctx.fill();
-          } finally {
-            ctx.restore();
-          }
-        }
-
-        // 4. Estrellitas por código al impactar
-        for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
-          const s = sparklePool[i];
-          if (!s.active) continue;
-          drawSparkleStar(ctx, s.x, s.y, s.size * (s.life / s.maxLife), s.color, s.rot);
-        }
-
-        // 5. Murciélagos activos
-        for (let i = 0; i < BAT_POOL_SIZE; i++) {
-          const b = batPool[i];
-          if (b.active) {
-            drawBat(ctx, b, b === activeBat);
-          }
-        }
-
-        // 6. HUD y textos
-        drawHUD(ctx);
-
-        // 7. Modal Game Over si pierde las vidas
-        if (gameOver) {
-          dependencies.drawGameOverModal(
+          const fade = Math.min(1, tutorialTimer / 0.8);
+          ctx.globalAlpha = fade;
+          dependencies.drawInstructionBox(
             ctx,
-            () => {
-              gameOver = false;
-              dependencies.gameState.retryLevel();
-              init();
-            },
-            () => {
-              gameOver = false;
-              dependencies.gameState.resetLives(3);
-              dependencies.switchState(dependencies.states.MENU);
-            }
+            'Escribe la palabra del cartel para espantar al murciélago',
+            24,
+            20,
+            340
           );
+          ctx.restore();
         }
 
-        // 8. Modo de depuración opcional F3
-        if (debugMode) {
-          drawDebugOverlay(ctx);
-        }
-      } catch (err) {
-        console.error('Error en caveLevel.draw:', err);
-      }
-    }
-
-    function drawDebugOverlay(ctx) {
-      ctx.save();
-      try {
-        ctx.font = '600 13px monospace, sans-serif';
-        let activeCount = 0;
-        let flyingCount = 0;
-        let defeatedCount = 0;
-        for (let i = 0; i < BAT_POOL_SIZE; i++) {
-          if (batPool[i].active) {
-            activeCount++;
-            if (batPool[i].state === 'flying' || batPool[i].state === 'attacking') flyingCount++;
-            else if (batPool[i].state === 'defeated') defeatedCount++;
-          }
-        }
-        let stonesCount = 0;
-        for (let i = 0; i < PROJ_POOL_SIZE; i++) {
-          if (projPool[i].active) stonesCount++;
-        }
-        let sparklesCount = 0;
-        for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
-          if (sparklePool[i].active) sparklesCount++;
-        }
-
-        const lines = [
-          '[F3] DEPURE CUEVA (NIVEL 4)',
-          `Estado: ${completed ? 'COMPLETADO' : (gameOver ? 'GAME OVER' : 'JUGANDO')}`,
-          `Murciélagos activos: ${activeCount} (volando: ${flyingCount}, derrotados: ${defeatedCount})`,
-          `Piedras en aire: ${stonesCount} / ${PROJ_POOL_SIZE}`,
-          `Partículas: ${sparklesCount} / ${SPARKLE_POOL_SIZE}`,
-          `Objetivo activo: ${activeBat ? activeBat.word + ' (' + activeBat.typedLength + '/' + activeBat.word.length + ')' : '(ninguno)'}`,
-          `Tiempo: ${timer.toFixed(1)}s / ${LEVEL4_DURATION}s | Racha: ${streak}`
-        ];
-
-        const boxW = 360;
-        const boxH = lines.length * 18 + 16;
-        ctx.fillStyle = 'rgba(15, 10, 24, 0.85)';
-        ctx.strokeStyle = '#9d72d6';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.roundRect(16, 75, boxW, boxH, 8);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'top';
-        for (let i = 0; i < lines.length; i++) {
-          ctx.fillStyle = i === 0 ? '#ffe27a' : '#d8d4ff';
-          ctx.fillText(lines[i], 26, 85 + i * 18);
-        }
-      } catch (err) {
-        console.error('Error en drawDebugOverlay:', err);
-      } finally {
-        ctx.restore();
-      }
-    }
-
-    function drawHUD(ctx) {
-      if (tutorialTimer > 0) {
         ctx.save();
-        const fade = Math.min(1, tutorialTimer / 0.8);
-        ctx.globalAlpha = fade;
-        dependencies.drawInstructionBox(
-          ctx,
-          'Escribe la palabra del cartel para espantar al murciélago',
-          24,
-          20,
-          340
-        );
-        ctx.restore();
-      }
+        const barW = 260;
+        const barH = 26;
+        const barX = dependencies.width / 2 - barW / 2;
+        const barY = 20;
+        const progress = Math.min(1, Math.max(0, timer / LEVEL4_DURATION));
 
-      ctx.save();
-      const barW = 260;
-      const barH = 26;
-      const barX = dependencies.width / 2 - barW / 2;
-      const barY = 20;
-      const progress = Math.min(1, Math.max(0, timer / LEVEL4_DURATION));
-
-      ctx.fillStyle = 'rgba(25, 20, 32, 0.68)';
-      ctx.beginPath();
-      ctx.roundRect(barX, barY, barW, barH, 13);
-      ctx.fill();
-
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-      ctx.beginPath();
-      ctx.roundRect(barX + 6, barY + 6, barW - 12, barH - 12, 7);
-      ctx.fill();
-
-      ctx.fillStyle = '#b388eb';
-      ctx.beginPath();
-      ctx.roundRect(barX + 6, barY + 6, (barW - 12) * progress, barH - 12, 7);
-      ctx.fill();
-      ctx.restore();
-
-      dependencies.drawHearts(ctx, dependencies.gameState.lives, 3, dependencies.width / 2, 56);
-
-      if (streak >= 2) {
-        ctx.save();
-        const streakText = 'Racha: ' + streak;
-        ctx.font = '600 15px Fredoka, Quicksand, sans-serif';
-        const stW = ctx.measureText(streakText).width + 24;
-        const stX = dependencies.width / 2 - stW / 2;
-        const stY = 96;
-
-        ctx.fillStyle = 'rgba(32, 24, 44, 0.7)';
+        ctx.fillStyle = 'rgba(25, 20, 32, 0.68)';
         ctx.beginPath();
-        ctx.roundRect(stX, stY, stW, 26, 12);
+        ctx.roundRect(barX, barY, barW, barH, 13);
         ctx.fill();
 
-        ctx.fillStyle = '#ffe27a';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(streakText, dependencies.width / 2, stY + 13);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+        ctx.beginPath();
+        ctx.roundRect(barX + 6, barY + 6, barW - 12, barH - 12, 7);
+        ctx.fill();
+
+        ctx.fillStyle = '#b388eb';
+        ctx.beginPath();
+        ctx.roundRect(barX + 6, barY + 6, (barW - 12) * progress, barH - 12, 7);
+        ctx.fill();
         ctx.restore();
+
+        dependencies.drawHearts(ctx, dependencies.gameState.lives, 3, dependencies.width / 2, 56);
+
+        if (streak >= 2) {
+          ctx.save();
+          const streakText = 'Racha: ' + streak;
+          ctx.font = '600 15px Fredoka, Quicksand, sans-serif';
+          const stW = ctx.measureText(streakText).width + 24;
+          const stX = dependencies.width / 2 - stW / 2;
+          const stY = 96;
+
+          ctx.fillStyle = 'rgba(32, 24, 44, 0.7)';
+          ctx.beginPath();
+          ctx.roundRect(stX, stY, stW, 26, 12);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffe27a';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(streakText, dependencies.width / 2, stY + 13);
+          ctx.restore();
+        }
+
+        dependencies.drawLogo(ctx, dependencies.logoSize);
       }
 
-      dependencies.drawLogo(ctx, dependencies.logoSize);
-    }
-
-    // Entrada de caracteres
-    function handleCharInput(char) {
+      // Entrada de caracteres
+      function handleCharInput(char) {
       if (gameOver || completed || dependencies.isPaused()) return false;
       const c = normalizeChar(char);
       if (!c || c < 'a' || c > 'z') return false;
+
+      // Limpiar referencia de murciélago si ya no está volando
+      if (activeBat && (!activeBat.active || activeBat.state !== 'flying')) {
+        activeBat = null;
+      }
 
       // Si no hay objetivo activo, buscar murciélago en vuelo cuya primera letra coincida
       if (!activeBat) {
@@ -1712,15 +1724,32 @@
           dependencies.audio.sfxKeyError();
         }
 
-        activeBat.signErrorTimer = 0.45;
-        activeBat.state = 'attacking';
-        activeBat = null; // Liberado de inmediato
+        // Feedback visual breve del error: la letra pendiente esperada parpadea en rojo suave por unos 0.2 s
+        activeBat.signErrorTimer = 0.2;
+
+        // Penalización suave de tiempo de llegada (ajustable con TYPO_TIME_PENALTY, con 0 se desactiva)
+        // Limita el total de penalización por murciélago a 1.0 s
+        if (TYPO_TIME_PENALTY > 0) {
+          const maxPenalty = 1.0;
+          const currentPenalty = activeBat.typoPenaltyTotal || 0;
+          const remainingAllowed = Math.max(0, maxPenalty - currentPenalty);
+          const penalty = Math.min(TYPO_TIME_PENALTY, remainingAllowed);
+          if (penalty > 0) {
+            activeBat.typoPenaltyTotal = currentPenalty + penalty;
+            activeBat.totalTime = Math.max(BAT_MIN_READ_TIME * 0.6, activeBat.totalTime - penalty);
+          }
+        }
+
+        // El murciélago NO cambia su velocidad de golpe ni su trayectoria, y NO se lanza a atacar.
+        // Sigue volando exactamente igual que antes del error.
+        // La letra equivocada se ignora: el progreso de la palabra se mantiene donde estaba
+        // y el jugador puede seguir escribiendo la letra correcta sin tener que empezar de nuevo.
+        // El murciélago sigue siendo el objetivo activo.
         return true;
       }
     }
 
     function handleKey(e) {
-      if (e.code === 'KeyP') return true;
       if (e.code === 'Space') return true;
       if (e.code === 'F3' || e.key === 'F3') {
         debugMode = !debugMode;
@@ -1730,27 +1759,27 @@
       return handleCharInput(e.key);
     }
 
-    return {
-      init,
-      update,
-      draw,
-      handleKey,
-      handleCharInput,
-      toggleDebug: () => { debugMode = !debugMode; },
-      getDebugState: () => ({
-        activeBat,
-        batPool,
-        projPool,
-        sparklePool,
-        streak,
-        timer,
-        completed,
-        gameOver,
-        debugMode
-      })
-    };
-  }
+      return {
+        init,
+        update,
+        draw,
+        handleKey,
+        handleCharInput,
+        toggleDebug: () => { debugMode = !debugMode; },
+        getDebugState: () => ({
+          activeBat,
+          batPool,
+          projPool,
+          sparklePool,
+          streak,
+          timer,
+          completed,
+          gameOver,
+          debugMode
+        })
+      };
+    }
 
-  window.createCaveCinematic = createCaveCinematic;
-  window.createCaveLevel = createCaveLevel;
-})();
+    window.createCaveCinematic = createCaveCinematic;
+    window.createCaveLevel = createCaveLevel;
+  })();
