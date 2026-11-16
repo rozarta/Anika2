@@ -52,17 +52,21 @@
   const CAVE_GROUND_Y = 540;           // Altura del suelo y del puente
   const ABYSS_DEPTH_Y = 690;           // Altura para detectar caída al abismo
 
-  // Dinámica de ENTER en Roca Grande (Tramo 1)
-  const CLIMB_PRESSES = 8;             // Pulsaciones necesarias para trepar
-  const CLIMB_DECAY = 1.35;            // Decaimiento por segundo al dejar de presionar
-  const CLIMB_RANGE = 75;              // Distancia al frente de la roca para interactuar
+  // Dinámica de escalada de Rocas Grandes (Tramo 1)
+  const BIG_ROCK_HEIGHT_SCALE = 2.2;   // Altura de rocas grandes relativo a la niña (~115px)
+  const BIG_ROCK_BASE_HEIGHT = 115;    // Altura en píxeles (entre 2 y 2.5 veces la niña)
+  const BIG_ROCK_WIDTH = 146;          // Ancho proporcional con repisas y salientes
+  const CLIMB_PRESSES = 10;            // Pulsaciones necesarias para trepar por mayor altura (ajustable)
+  const CLIMB_DECAY = 1.25;            // Decaimiento por segundo al dejar de presionar
+  const CLIMB_RANGE = 80;              // Distancia al frente de la roca para interactuar
   const ENTER_MASH_FEEDBACK = 0.18;    // Duración de animación de tecla hundida
 
-  // Obstáculos Tramo 1 (Rocas cayendo)
+  // Obstáculos Tramo 1 (Rocas cayendo del techo)
+  const FALLING_ROCK_SCALE = 1.5;      // Escala de rocas que caen (1.5 veces su tamaño actual, más macizas)
   const ROCK_FALL_MIN = 1.8;           // Intervalo mínimo entre caídas de rocas (segundos)
   const ROCK_FALL_MAX = 3.2;           // Intervalo máximo entre caídas de rocas (segundos)
   const ROCK_WARN_TIME = 0.8;          // Tiempo de aviso previo desde el techo (segundos)
-  const EVENT_MIN_GAP = 145;           // Separación horizontal mínima entre columnas de rocas
+  const EVENT_MIN_GAP = 120;           // Separación horizontal mínima para permitir esquivar caminando
 
   // Obstáculos Tramo 2 (Puente con huecos)
   const HOLE_WARN_TIME = 0.7;          // Tiempo de aviso previo en tabla antes de caer
@@ -74,9 +78,14 @@
   const INITIAL_COLLAPSE_GAP = 220;    // Ventaja inicial de distancia de Anika sobre el derrumbe
 
   // Parpadeo e invulnerabilidad
-  const BLINK_COUNT = 2;               // Parpadeo exacto requerido
-  const BLINK_DURATION = 1.5;          // Duración de invulnerabilidad tras recibir daño
+  const BLINK_COUNT = 2;               // Parpadeo exacto requerido (visible/invisible x 2)
+  const BLINK_DURATION = 1.0;          // Duración total de invulnerabilidad (1.0 s)
   const RESPAWN_GRACE_TIME = 1.0;      // Gracia sin amenazas tras reaparecer
+
+  // Cinemática de salida hacia el Pino
+  const CLIMB_OUT_TIME = 7.0;          // Duración escalando el pozo vertical hacia la luz (6-8 s)
+  const SURFACE_LOOK_TIME = 2.0;       // Tiempo mirando alrededor en la superficie exterior
+  const WALK_TO_TREE_TIME = 3.2;       // Tiempo caminando hacia la base del Gran Pino
 
   // ==========================================
   // CANVASES OFFSCREEN PRE-RENDERIZADOS
@@ -287,7 +296,7 @@
       { light: '#9b849c', base: '#725c73', shadow: '#4f3e50', outline: '#342735', crack: '#261b27' }
     ];
 
-    const polyShapes = [
+    const baseShapes = [
       // 0: Cráter asimétrico
       [[-16, -14], [3, -19], [17, -9], [18, 8], [4, 18], [-14, 15], [-19, 0]],
       // 1: Cincelada angulosa
@@ -302,15 +311,17 @@
       [[-15, -16], [7, -19], [19, -8], [17, 14], [-5, 19], [-19, 7]]
     ];
 
-    polyShapes.forEach((verts, idx) => {
+    baseShapes.forEach((baseVerts, idx) => {
+      // Escalar vértices 1.5 veces para mayor tamaño y aspecto macizo
+      const verts = baseVerts.map(([vx, vy]) => [Math.round(vx * FALLING_ROCK_SCALE), Math.round(vy * FALLING_ROCK_SCALE)]);
       const cv = document.createElement('canvas');
-      cv.width = 56;
-      cv.height = 56;
+      cv.width = 88;
+      cv.height = 88;
       const ctx = cv.getContext('2d');
       const theme = rockThemes[idx % rockThemes.length];
 
       ctx.save();
-      ctx.translate(28, 28);
+      ctx.translate(44, 44);
 
       // Trazo de silueta exterior con esquinas redondeadas
       ctx.beginPath();
@@ -334,52 +345,52 @@
       ctx.clip();
       ctx.fillStyle = theme.shadow;
       ctx.beginPath();
-      ctx.moveTo(-5, -10);
-      ctx.lineTo(25, -5);
-      ctx.lineTo(25, 25);
-      ctx.lineTo(-10, 25);
+      ctx.moveTo(-8, -14);
+      ctx.lineTo(36, -8);
+      ctx.lineTo(36, 36);
+      ctx.lineTo(-14, 36);
       ctx.closePath();
       ctx.fill();
 
       // Cara iluminada (superior izquierda)
       ctx.fillStyle = theme.light;
       ctx.beginPath();
-      ctx.moveTo(-25, -25);
-      ctx.lineTo(15, -25);
-      ctx.lineTo(2, 4);
-      ctx.lineTo(-25, 4);
+      ctx.moveTo(-36, -36);
+      ctx.lineTo(22, -36);
+      ctx.lineTo(4, 6);
+      ctx.lineTo(-36, 6);
       ctx.closePath();
       ctx.fill();
 
       // Grietas finas en la roca
       ctx.strokeStyle = theme.crack;
-      ctx.lineWidth = 1.3;
+      ctx.lineWidth = 1.6;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(-8, -4);
-      ctx.lineTo(-2, 3);
-      ctx.lineTo(6, 0);
+      ctx.moveTo(-12, -6);
+      ctx.lineTo(-3, 4);
+      ctx.lineTo(9, 0);
       ctx.stroke();
 
       // Moteado de textura suave
       ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
-      ctx.fillRect(-6, -9, 2.5, 2);
-      ctx.fillRect(4, -11, 2, 2);
+      ctx.fillRect(-9, -13, 3.5, 3);
+      ctx.fillRect(6, -15, 3, 3);
       ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
-      ctx.fillRect(5, 7, 2.5, 2);
-      ctx.fillRect(-8, 9, 2, 2);
+      ctx.fillRect(7, 10, 3.5, 3);
+      ctx.fillRect(-11, 13, 3, 3);
 
       ctx.restore();
 
       // Contorno general oscurecido
       ctx.strokeStyle = theme.outline;
-      ctx.lineWidth = 2.4;
+      ctx.lineWidth = 2.8;
       ctx.lineJoin = 'round';
       ctx.stroke();
 
       // Borde suave de luz en la cresta superior
       ctx.strokeStyle = 'rgba(255, 240, 220, 0.45)';
-      ctx.lineWidth = 1.8;
+      ctx.lineWidth = 2.0;
       ctx.beginPath();
       ctx.moveTo(verts[0][0], verts[0][1]);
       ctx.lineTo(verts[1][0], verts[1][1]);
@@ -396,35 +407,37 @@
 
     const bigConfigs = [
       {
-        w: 120, h: 96,
+        w: BIG_ROCK_WIDTH, h: BIG_ROCK_BASE_HEIGHT,
         theme: { light: '#8b769c', base: '#655276', shadow: '#443553', outline: '#2b1f35', crack: '#201629' },
         moss: '#6f9273', mossLight: '#8cb390'
       },
       {
-        w: 120, h: 96,
+        w: BIG_ROCK_WIDTH, h: BIG_ROCK_BASE_HEIGHT,
         theme: { light: '#918296', base: '#6c5c71', shadow: '#4a3d4f', outline: '#2e2432', crack: '#221926' },
         moss: '#739575', mossLight: '#8fb792'
       }
     ];
 
-    bigConfigs.forEach(cfg => {
+    bigConfigs.forEach((cfg) => {
       const cv = document.createElement('canvas');
-      cv.width = 140;
-      cv.height = 120;
+      cv.width = 180;
+      cv.height = 160;
       const ctx = cv.getContext('2d');
-      const cx = 70;
-      const cy = 110; // Base apoyada en el suelo
+      const cx = 90;
+      const cy = 145; // Base apoyada exactamente en la línea del suelo
 
       ctx.save();
       ctx.translate(cx, cy);
 
-      // Silueta pesada, asimétrica y maciza (más alta que Anika)
+      // Silueta pesada, asimétrica y maciza (altura BIG_ROCK_BASE_HEIGHT = 115px, 2.2 veces la niña)
       ctx.beginPath();
-      ctx.moveTo(-52, 4); // Ligeramente hundida en el suelo
-      ctx.quadraticCurveTo(-56, -45, -42, -72);
-      ctx.quadraticCurveTo(-26, -92, -6, -92);
-      ctx.quadraticCurveTo(18, -94, 40, -78);
-      ctx.quadraticCurveTo(56, -50, 52, 4);
+      ctx.moveTo(-68, 2);
+      ctx.quadraticCurveTo(-72, -35, -60, -42); // Repisa inferior
+      ctx.quadraticCurveTo(-54, -72, -44, -78); // Repisa media
+      ctx.quadraticCurveTo(-34, -114, -10, -115); // Cumbre izquierda
+      ctx.quadraticCurveTo(18, -117, 46, -100); // Cumbre derecha
+      ctx.quadraticCurveTo(68, -65, 66, -20);
+      ctx.quadraticCurveTo(68, 0, 64, 2);
       ctx.closePath();
 
       // Relleno base
@@ -438,81 +451,107 @@
       // Sombra inferior y lateral derecha
       ctx.fillStyle = cfg.theme.shadow;
       ctx.beginPath();
-      ctx.moveTo(0, -90);
-      ctx.lineTo(60, -90);
-      ctx.lineTo(60, 10);
-      ctx.lineTo(-20, 10);
-      ctx.lineTo(-5, -30);
+      ctx.moveTo(0, -125);
+      ctx.lineTo(85, -125);
+      ctx.lineTo(85, 10);
+      ctx.lineTo(-30, 10);
+      ctx.lineTo(-5, -45);
       ctx.closePath();
       ctx.fill();
 
       // Luz superior izquierda
       ctx.fillStyle = cfg.theme.light;
       ctx.beginPath();
-      ctx.moveTo(-60, -95);
-      ctx.lineTo(10, -95);
-      ctx.lineTo(-10, -10);
-      ctx.lineTo(-60, -10);
+      ctx.moveTo(-85, -130);
+      ctx.lineTo(15, -130);
+      ctx.lineTo(-15, -15);
+      ctx.lineTo(-85, -15);
       ctx.closePath();
       ctx.fill();
 
-      // Grietas de bloque de roca
+      // Repisas y salientes visibles en la cara frontal (donde Anika apoya manos y pies)
+      // Repisa 1 (inferior ~38px de altura): shelf en y = -38
+      ctx.fillStyle = cfg.theme.light;
+      ctx.beginPath();
+      ctx.roundRect(-58, -42, 34, 7, 3);
+      ctx.fill();
+      ctx.fillStyle = cfg.theme.shadow;
+      ctx.beginPath();
+      ctx.roundRect(-56, -35, 34, 4, 2);
+      ctx.fill();
+
+      // Repisa 2 (media ~75px de altura): shelf en y = -75
+      ctx.fillStyle = cfg.theme.light;
+      ctx.beginPath();
+      ctx.roundRect(-42, -79, 32, 7, 3);
+      ctx.fill();
+      ctx.fillStyle = cfg.theme.shadow;
+      ctx.beginPath();
+      ctx.roundRect(-40, -72, 32, 4, 2);
+      ctx.fill();
+
+      // Grietas de bloque de roca conectando repisas
       ctx.strokeStyle = cfg.theme.crack;
-      ctx.lineWidth = 2.0;
+      ctx.lineWidth = 2.4;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      ctx.moveTo(-22, -80);
-      ctx.lineTo(-14, -54);
-      ctx.lineTo(-2, -48);
-      ctx.lineTo(16, -58);
+      ctx.moveTo(-32, -100);
+      ctx.lineTo(-20, -75);
+      ctx.lineTo(-8, -68);
+      ctx.lineTo(18, -80);
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(-14, -54);
-      ctx.lineTo(-20, -28);
+      ctx.moveTo(-20, -75);
+      ctx.lineTo(-26, -38);
+      ctx.lineTo(-12, -22);
       ctx.stroke();
 
-      // Parche de musgo verde pastel en la cresta superior
+      // Parche de musgo verde pastel en la cresta superior y repisas
       ctx.fillStyle = cfg.moss;
       ctx.beginPath();
-      ctx.ellipse(-14, -86, 22, 7, -0.08, 0, Math.PI * 2);
-      ctx.ellipse(12, -84, 18, 6, 0.12, 0, Math.PI * 2);
+      ctx.ellipse(-20, -112, 28, 8, -0.06, 0, Math.PI * 2);
+      ctx.ellipse(18, -110, 24, 7, 0.10, 0, Math.PI * 2);
+      ctx.ellipse(-44, -43, 14, 4, 0, 0, Math.PI * 2);
+      ctx.ellipse(-30, -80, 13, 4, 0, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = cfg.mossLight;
       ctx.beginPath();
-      ctx.ellipse(-16, -88, 14, 4, -0.08, 0, Math.PI * 2);
-      ctx.ellipse(14, -86, 10, 3.5, 0.12, 0, Math.PI * 2);
+      ctx.ellipse(-22, -114, 18, 5, -0.06, 0, Math.PI * 2);
+      ctx.ellipse(20, -112, 14, 4, 0.10, 0, Math.PI * 2);
+      ctx.ellipse(-44, -44, 9, 2.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(-30, -81, 8, 2.5, 0, 0, Math.PI * 2);
       ctx.fill();
 
       // Moteado y textura
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-      ctx.fillRect(-32, -60, 4, 3);
-      ctx.fillRect(-28, -40, 3, 3);
-      ctx.fillRect(20, -40, 4, 3);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+      ctx.fillRect(-45, -95, 5, 4);
+      ctx.fillRect(-38, -60, 4, 4);
+      ctx.fillRect(28, -60, 5, 4);
 
       ctx.restore();
 
       // Contorno general oscurecido
       ctx.strokeStyle = cfg.theme.outline;
-      ctx.lineWidth = 3.2;
+      ctx.lineWidth = 3.4;
       ctx.lineJoin = 'round';
       ctx.stroke();
 
-      // Línea suave de luz en bordes superiores
-      ctx.strokeStyle = 'rgba(255, 240, 225, 0.5)';
+      // Borde suave de luz en crestas superiores
+      ctx.strokeStyle = 'rgba(255, 240, 225, 0.55)';
       ctx.lineWidth = 2.2;
       ctx.beginPath();
-      ctx.moveTo(-42, -72);
-      ctx.quadraticCurveTo(-26, -92, -6, -92);
-      ctx.quadraticCurveTo(18, -94, 40, -78);
+      ctx.moveTo(-54, -78);
+      ctx.quadraticCurveTo(-34, -114, -10, -115);
+      ctx.quadraticCurveTo(18, -117, 46, -100);
       ctx.stroke();
 
       // Astillas y pequeñas piedras en la base apoyadas en el suelo
       ctx.fillStyle = cfg.theme.shadow;
       ctx.beginPath();
-      ctx.ellipse(-54, 1, 9, 4, 0.2, 0, Math.PI * 2);
-      ctx.ellipse(50, 1, 10, 4.5, -0.15, 0, Math.PI * 2);
+      ctx.ellipse(-66, 1, 11, 5, 0.2, 0, Math.PI * 2);
+      ctx.ellipse(62, 1, 12, 5.5, -0.15, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.restore();
@@ -602,6 +641,721 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('ENTER ↵', 0, 1);
+
+    ctx.restore();
+  }
+
+  // ==========================================
+  // CICLO ÚNICO Y FLUIDO DE CORRER, IDLE Y ESCALADA DE ANIKA
+  // Sin sombras ovaladas debajo, sin emojis, estilo ilustrado pastel
+  // Pies siempre apoyados en la línea del suelo (y = 0) al apoyar
+  // ==========================================
+  function drawAnika(ctx, x, y, options = {}) {
+    const scale = options.scale || 1;
+    const facing = options.facingRight !== false ? 1 : -1;
+    const animState = options.state || 'idle'; // 'idle', 'run', 'jump', 'climbing', 'duck', 'hurt'
+    const animTime = options.animTime || 0;
+    const stepPhase = options.stepPhase || 0;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scale * facing, scale);
+
+    // Paleta ilustrada pastel de Anika
+    const C_BOOTS = '#6d4834';
+    const C_DRESS = '#4c8c82';
+    const C_CAPE = '#dc5847';
+    const C_CAPE_TRIM = '#fff8e8';
+    const C_HAIR = '#5a3825';
+    const C_SKIN = '#fedec4';
+    const C_CHEEK = 'rgba(255, 130, 130, 0.55)';
+    const C_EYE = '#221e25';
+    const C_MOUTH = '#8a4b44';
+
+    // 1. ESTADO: AGACHARSE (DUCK)
+    if (animState === 'duck') {
+      ctx.fillStyle = C_BOOTS;
+      ctx.beginPath();
+      ctx.roundRect(-9, -6.5, 8, 6.5, 3);
+      ctx.roundRect(1, -6.5, 8, 6.5, 3);
+      ctx.fill();
+
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.moveTo(-13, -6.5);
+      ctx.lineTo(13, -6.5);
+      ctx.lineTo(8, -16);
+      ctx.lineTo(-8, -16);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(-5, -16);
+      ctx.rotate(-0.06);
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-14, 5, -11, 13);
+      ctx.quadraticCurveTo(-2, 12, 4, 7);
+      ctx.lineTo(4, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = C_CAPE_TRIM;
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+      ctx.restore();
+
+      const headY = -18;
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(2, headY, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-8, headY + 2, 5.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(3, headY + 1, 9.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(3, headY - 3, 9.5, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+
+      ctx.fillStyle = C_CHEEK;
+      ctx.beginPath();
+      ctx.arc(7, headY + 3, 2.6, 0, Math.PI * 2);
+      ctx.arc(0, headY + 3, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = C_EYE;
+      ctx.beginPath();
+      ctx.arc(7, headY + 1, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(7.6, headY + 0.3, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = C_MOUTH;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(6, headY + 4.5, 1.5, 0, Math.PI);
+      ctx.stroke();
+
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.arc(0, headY - 6.5, 3.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      return;
+    }
+
+    // 2. ESTADO: ESCALADA EN ROCA (CLIMBING)
+    if (animState === 'climbing') {
+      const climbBob = Math.sin(animTime * 6) * 1.0;
+      const hipY = -22 + climbBob;
+      const shoulderY = hipY - 14;
+      const headY = shoulderY - 8;
+
+      // Brazo lejano levantado sujetando la repisa superior
+      ctx.save();
+      ctx.translate(-2, shoulderY + 2);
+      ctx.rotate(-1.15);
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 11, 5, 2.5);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(11, 0, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Pierna lejana en repisa inferior
+      ctx.fillStyle = C_BOOTS;
+      ctx.beginPath();
+      ctx.roundRect(-8, -10, 6, 10, 3);
+      ctx.fill();
+
+      // Capa colgando naturalmente hacia abajo
+      ctx.save();
+      ctx.translate(-4, shoulderY + 2);
+      ctx.rotate(-0.08);
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-12, 10, -8, 22);
+      ctx.lineTo(4, 16);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = C_CAPE_TRIM;
+      ctx.lineWidth = 2.0;
+      ctx.stroke();
+      ctx.restore();
+
+      // Vestido verde/azul pastel
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.moveTo(-10, hipY);
+      ctx.lineTo(10, hipY);
+      ctx.lineTo(8, shoulderY);
+      ctx.lineTo(-8, shoulderY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Pierna cercana flexionada sobre saliente de la roca
+      ctx.fillStyle = C_BOOTS;
+      ctx.beginPath();
+      ctx.roundRect(1, -18, 6, 11, 3);
+      ctx.fill();
+
+      // Brazo cercano afirmándose en la roca
+      ctx.save();
+      ctx.translate(3, shoulderY + 2);
+      ctx.rotate(-0.55);
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 10, 5, 2.5);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(10, 0, 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Cabeza mirando hacia la cima de la roca
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(2, headY, 14.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-10, headY + 3, 6.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(3, headY + 1, 11.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(3, headY - 4, 11.5, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+
+      ctx.fillStyle = C_CHEEK;
+      ctx.beginPath();
+      ctx.arc(7, headY + 4, 3.2, 0, Math.PI * 2);
+      ctx.arc(0, headY + 4, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ojos determinados mirando hacia arriba/adelante
+      ctx.fillStyle = C_EYE;
+      ctx.beginPath();
+      ctx.arc(6.5, headY - 0.5, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(7.2, headY - 1.2, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = C_MOUTH;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(5.5, headY + 4.5, 1.8, 0.1, Math.PI * 0.9);
+      ctx.stroke();
+
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.arc(0, headY - 8, 4.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      return;
+    }
+
+    // 3. ESTADO: SALTO (JUMP)
+    if (animState === 'jump') {
+      const hipY = -18;
+      const shoulderY = hipY - 14;
+      const headY = shoulderY - 9;
+
+      // Brazo lejano estirado hacia atrás para equilibrio
+      ctx.save();
+      ctx.translate(-2, shoulderY + 2);
+      ctx.rotate(0.65);
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 10, 5, 2.5);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(10, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Pierna lejana recogida
+      ctx.fillStyle = C_BOOTS;
+      ctx.beginPath();
+      ctx.roundRect(-7, -8, 6, 10, 3);
+      ctx.fill();
+
+      // Capa flameando alta
+      ctx.save();
+      ctx.translate(-4, shoulderY + 2);
+      ctx.rotate(0.48);
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-18, 8, -14, 22);
+      ctx.lineTo(4, 15);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = C_CAPE_TRIM;
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+      ctx.restore();
+
+      // Vestido
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.moveTo(-11, hipY);
+      ctx.lineTo(11, hipY);
+      ctx.lineTo(8, shoulderY);
+      ctx.lineTo(-8, shoulderY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Pierna cercana recogida
+      ctx.fillStyle = C_BOOTS;
+      ctx.beginPath();
+      ctx.roundRect(2, -6, 6, 10, 3);
+      ctx.fill();
+
+      // Brazo cercano adelantado para equilibrio
+      ctx.save();
+      ctx.translate(2, shoulderY + 2);
+      ctx.rotate(-0.55);
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 10, 5, 2.5);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(10, 0, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Cabeza y rostro alegre
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(0, headY, 14.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-13, headY + 3, 6.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(1, headY + 1, 11.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(1, headY - 4, 11.5, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+      ctx.fillStyle = C_CHEEK;
+      ctx.beginPath();
+      ctx.arc(5, headY + 4, 3.2, 0, Math.PI * 2);
+      ctx.arc(-2, headY + 4, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C_EYE;
+      ctx.beginPath();
+      ctx.arc(5, headY + 1, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(5.8, headY + 0.3, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = C_MOUTH;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(4, headY + 5, 2.2, 0, Math.PI);
+      ctx.stroke();
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.arc(-2, headY - 8, 4.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      return;
+    }
+
+    // 4. ESTADO: DAÑO / SUSTO (HURT)
+    if (animState === 'hurt') {
+      ctx.translate(-4, 0);
+      ctx.rotate(-0.08);
+
+      ctx.fillStyle = C_BOOTS;
+      ctx.beginPath();
+      ctx.roundRect(-7, -12, 6, 12, 3);
+      ctx.roundRect(1, -12, 6, 12, 3);
+      ctx.fill();
+
+      ctx.save();
+      ctx.translate(-4, -28);
+      ctx.rotate(-0.1);
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-14, 8, -10, 20);
+      ctx.lineTo(4, 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = C_CAPE_TRIM;
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.moveTo(-11, -12);
+      ctx.lineTo(11, -12);
+      ctx.lineTo(8, -28);
+      ctx.lineTo(-8, -28);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.roundRect(-3, -24, 8, 5, 2.5);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(6, -21.5, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      const headY = -37;
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(0, headY, 14.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-13, headY + 3, 6.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(1, headY + 1, 11.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(1, headY - 4, 11.5, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+      ctx.fillStyle = C_CHEEK;
+      ctx.beginPath();
+      ctx.arc(5, headY + 4, 3.2, 0, Math.PI * 2);
+      ctx.arc(-2, headY + 4, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Ojos cerrados de susto
+      ctx.strokeStyle = C_EYE;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(5, headY + 1, 3, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+
+      ctx.strokeStyle = C_MOUTH;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.arc(4, headY + 6, 1.6, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.arc(-2, headY - 8, 4.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      return;
+    }
+
+    // 5. ESTADO: CORRER (RUN) - Ciclo fluido sin patinar, pies siempre en suelo
+    if (animState === 'run') {
+      const strideAmp = 9.5;
+      const hipBob = Math.abs(Math.sin(stepPhase)) * 1.4;
+      const hipY = -13 + hipBob;
+      const shoulderY = hipY - 14;
+      const headY = shoulderY - 9;
+
+      // Cálculo cinemático de posición de pies para fase de apoyo (grounded, fy = 0) y vuelo (arco)
+      function getLegPos(phaseOffset) {
+        const theta = stepPhase + phaseOffset;
+        const t = ((theta % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        if (t < Math.PI) {
+          const p = t / Math.PI;
+          return {
+            fx: strideAmp - p * (strideAmp * 2),
+            fy: 0, // En el suelo exactamente
+            grounded: true
+          };
+        } else {
+          const p = (t - Math.PI) / Math.PI;
+          return {
+            fx: -strideAmp + p * (strideAmp * 2),
+            fy: -Math.sin(p * Math.PI) * 5.5, // Levantado en arco
+            grounded: false
+          };
+        }
+      }
+
+      const nearLeg = getLegPos(0);
+      const farLeg = getLegPos(Math.PI);
+
+      function drawLeg(hx, hy, fx, fy, grounded) {
+        const midX = (hx + fx) / 2;
+        const midY = (hy + fy) / 2;
+        const kneeX = midX + (grounded ? 2.5 : 4.0);
+        const kneeY = midY - 1.0;
+
+        ctx.strokeStyle = C_BOOTS;
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(hx, hy);
+        ctx.lineTo(kneeX, kneeY);
+        ctx.lineTo(fx, fy - 3);
+        ctx.stroke();
+
+        ctx.fillStyle = C_BOOTS;
+        ctx.beginPath();
+        ctx.roundRect(fx - 4, fy - 6, 9.5, 6, 2.5);
+        ctx.fill();
+      }
+
+      // 1. Brazo lejano (en oposición biomecánica a la pierna lejana)
+      const armFarAngle = Math.cos(stepPhase) * 0.72;
+      ctx.save();
+      ctx.translate(-2, shoulderY + 2);
+      ctx.rotate(armFarAngle);
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 8, 5, 2.5);
+      ctx.fill();
+      ctx.translate(7, 0);
+      ctx.rotate(0.35);
+      ctx.beginPath();
+      ctx.roundRect(0, -2, 6, 4, 2);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(6, 0, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // 2. Pierna lejana
+      drawLeg(-3, hipY, farLeg.fx, farLeg.fy, farLeg.grounded);
+
+      // 3. Capa roja flameando hacia atrás
+      const capeAngle = 0.36 + Math.sin(stepPhase) * 0.14;
+      ctx.save();
+      ctx.translate(-4, shoulderY + 2);
+      ctx.rotate(capeAngle);
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-18, 9, -15, 23);
+      ctx.quadraticCurveTo(-4, 19, 4, 15);
+      ctx.lineTo(4, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = C_CAPE_TRIM;
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+      ctx.restore();
+
+      // 4. Vestido azul/verde pastel
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.moveTo(-11, hipY);
+      ctx.lineTo(11, hipY);
+      ctx.lineTo(8, shoulderY);
+      ctx.lineTo(-8, shoulderY);
+      ctx.closePath();
+      ctx.fill();
+
+      // 5. Pierna cercana
+      drawLeg(3, hipY, nearLeg.fx, nearLeg.fy, nearLeg.grounded);
+
+      // 6. Brazo cercano (en oposición biomecánica a la pierna cercana)
+      const armNearAngle = -Math.cos(stepPhase) * 0.72;
+      ctx.save();
+      ctx.translate(2, shoulderY + 2);
+      ctx.rotate(armNearAngle);
+      ctx.fillStyle = C_DRESS;
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 8, 5, 2.5);
+      ctx.fill();
+      ctx.translate(7, 0);
+      ctx.rotate(0.40);
+      ctx.beginPath();
+      ctx.roundRect(0, -2, 6, 4, 2);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(6, 0, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // 7. Cabeza, rostro y expresión decidida
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(0, headY, 14.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-13, headY + 3, 6.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C_SKIN;
+      ctx.beginPath();
+      ctx.arc(1, headY + 1, 11.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C_HAIR;
+      ctx.beginPath();
+      ctx.arc(1, headY - 4, 11.5, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.fill();
+      ctx.fillStyle = C_CHEEK;
+      ctx.beginPath();
+      ctx.arc(5, headY + 4, 3.2, 0, Math.PI * 2);
+      ctx.arc(-2, headY + 4, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = C_EYE;
+      ctx.beginPath();
+      ctx.arc(5, headY + 1, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(5.8, headY + 0.3, 0.9, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = C_MOUTH;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(4, headY + 5, 2.2, 0, Math.PI);
+      ctx.stroke();
+      ctx.fillStyle = C_CAPE;
+      ctx.beginPath();
+      ctx.arc(-2, headY - 8, 4.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+      return;
+    }
+
+    // 6. ESTADO: REPOSO (IDLE) - Ambos pies firmemente en el suelo (y = 0)
+    const breath = Math.sin(animTime * 3.2) * 0.8;
+    const hipY = -12 - breath;
+    const shoulderY = hipY - 14;
+    const headY = shoulderY - 9;
+
+    // Brazo lejano relajado
+    ctx.save();
+    ctx.translate(-2, shoulderY + 2);
+    ctx.rotate(0.08);
+    ctx.fillStyle = C_DRESS;
+    ctx.beginPath();
+    ctx.roundRect(-2, 0, 4, 12, 2);
+    ctx.fill();
+    ctx.fillStyle = C_SKIN;
+    ctx.beginPath();
+    ctx.arc(0, 12, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Botitas apoyadas juntas en el suelo (y = 0)
+    ctx.fillStyle = C_BOOTS;
+    ctx.beginPath();
+    ctx.roundRect(-7, -12, 6, 12, 3);
+    ctx.roundRect(1, -12, 6, 12, 3);
+    ctx.fill();
+
+    // Capa roja
+    const idleCape = Math.sin(animTime * 2.5) * 0.05;
+    ctx.save();
+    ctx.translate(-4, shoulderY + 2);
+    ctx.rotate(idleCape);
+    ctx.fillStyle = C_CAPE;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(-16, 9, -13, 23);
+    ctx.lineTo(4, 15);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = C_CAPE_TRIM;
+    ctx.lineWidth = 2.4;
+    ctx.stroke();
+    ctx.restore();
+
+    // Vestido
+    ctx.fillStyle = C_DRESS;
+    ctx.beginPath();
+    ctx.moveTo(-11, hipY);
+    ctx.lineTo(11, hipY);
+    ctx.lineTo(8, shoulderY);
+    ctx.lineTo(-8, shoulderY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Brazo cercano relajado
+    ctx.save();
+    ctx.translate(2, shoulderY + 2);
+    ctx.rotate(-0.06);
+    ctx.fillStyle = C_DRESS;
+    ctx.beginPath();
+    ctx.roundRect(-2, 0, 4, 12, 2);
+    ctx.fill();
+    ctx.fillStyle = C_SKIN;
+    ctx.beginPath();
+    ctx.arc(0, 12, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Cabeza y rostro dulce
+    ctx.fillStyle = C_HAIR;
+    ctx.beginPath();
+    ctx.arc(0, headY, 14.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(-13, headY + 3, 6.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = C_SKIN;
+    ctx.beginPath();
+    ctx.arc(1, headY + 1, 11.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = C_HAIR;
+    ctx.beginPath();
+    ctx.arc(1, headY - 4, 11.5, Math.PI * 0.9, Math.PI * 2.1);
+    ctx.fill();
+    ctx.fillStyle = C_CHEEK;
+    ctx.beginPath();
+    ctx.arc(5, headY + 4, 3.2, 0, Math.PI * 2);
+    ctx.arc(-2, headY + 4, 2.8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = C_EYE;
+    ctx.beginPath();
+    ctx.arc(5, headY + 1, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(5.8, headY + 0.3, 0.9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = C_MOUTH;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(4, headY + 5, 1.8, 0.1, Math.PI * 0.9);
+    ctx.stroke();
+    ctx.fillStyle = C_CAPE;
+    ctx.beginPath();
+    ctx.arc(-2, headY - 8, 4.8, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   }
@@ -749,7 +1503,7 @@
           ctx.restore();
         });
 
-        // Dibujar a la niña (sin sombra ovalada debajo)
+        // Dibujar a la niña con ciclo de correr fluido (sin sombra ovalada debajo)
         let girlState = 'idle';
         if (phase === 'react') {
           girlState = 'duck'; // Se cubre la cabeza asustada
@@ -757,12 +1511,11 @@
           girlState = 'run';
         }
 
-        dependencies.drawGirl(ctx, girlX, girlY, {
+        drawAnika(ctx, girlX, girlY, {
           state: girlState,
           facingRight: true,
-          throwDir: 'side',
-          animTime: elapsed,
-          hasDuck: false
+          stepPhase: (girlX / 18) * Math.PI,
+          animTime: elapsed
         });
 
       } finally {
@@ -805,6 +1558,9 @@
     let graceTimer = 0;
     let transitionSent = false;
     let exitLightAlpha = 0;
+    let cameraY = 0; // Seguimiento vertical suave y lineal durante la escalada
+    let livesAtLevelStart = 3;
+    let levelInitialized = false;
 
     // Depuración (F3)
     let debugMode = false;
@@ -821,6 +1577,7 @@
       onGround: true,
       state: 'idle', // 'idle', 'run', 'jump', 'climbing', 'hurt'
       animTime: 0,
+      stepPhase: 0,
       jumpHold: false
     };
 
@@ -857,10 +1614,10 @@
     }
     let rockSpawnTimer = 1.6;
 
-    // Rocas gigantes que bloquean el camino (Tramo 1)
+    // Rocas gigantes que bloquean el camino (Tramo 1) - Altura BIG_ROCK_BASE_HEIGHT = 115px (2.2 veces la niña)
     const bigRocks = [
-      { x: 920, w: 104, h: 88, climbed: false, variant: 0 },
-      { x: 1840, w: 104, h: 88, climbed: false, variant: 1 }
+      { x: 920, w: BIG_ROCK_WIDTH, h: BIG_ROCK_BASE_HEIGHT, climbed: false, variant: 0 },
+      { x: 1840, w: BIG_ROCK_WIDTH, h: BIG_ROCK_BASE_HEIGHT, climbed: false, variant: 1 }
     ];
 
     // --- OBSTÁCULOS: TABLAS DEL PUENTE CON HUECOS (TRAMOS 2 Y 3) ---
@@ -953,7 +1710,7 @@
       }
     }
 
-    function init() {
+    function init(isRetry = false) {
       timer = 0;
       gameOver = false;
       completed = false;
@@ -963,9 +1720,29 @@
       graceTimer = 0;
       transitionSent = false;
       exitLightAlpha = 0;
+      cameraY = 0;
 
       enterPressCount = 0;
       enterBadgeAnimTimer = 0;
+
+      // 3. VIDAS: Compartidas, sin recuperar al entrar ni salir del nivel.
+      // REINTENTAR reinicia con las vidas con que entró al nivel (mínimo 1).
+      if (!isRetry) {
+        const currentLives = (dependencies.gameState && typeof dependencies.gameState.lives === 'number')
+          ? dependencies.gameState.lives
+          : 3;
+        livesAtLevelStart = Math.max(1, Math.min(3, currentLives));
+        if (dependencies.gameState) {
+          dependencies.gameState.lives = livesAtLevelStart;
+          dependencies.gameState.livesAtLevelStart = livesAtLevelStart;
+        }
+      } else {
+        if (dependencies.gameState) {
+          dependencies.gameState.lives = Math.max(1, livesAtLevelStart);
+          dependencies.gameState.livesAtLevelStart = livesAtLevelStart;
+        }
+      }
+      levelInitialized = true;
 
       player.x = 120;
       player.y = CAVE_GROUND_Y;
@@ -975,6 +1752,7 @@
       player.onGround = true;
       player.state = 'idle';
       player.animTime = 0;
+      player.stepPhase = 0;
       player.jumpHold = false;
 
       isClimbing = false;
@@ -1020,6 +1798,28 @@
       return 3;
     }
 
+    // Sistema unificado de daño: quita exactamente 1 vida con invulnerabilidad y parpadeo
+    function takeDamage() {
+      if (invulTimer > 0) return false;
+
+      if (dependencies.gameState) {
+        if (typeof dependencies.gameState.loseLife === 'function') {
+          dependencies.gameState.loseLife();
+        } else {
+          dependencies.gameState.lives = Math.max(0, dependencies.gameState.lives - 1);
+        }
+      }
+
+      invulTimer = BLINK_DURATION;
+      hurtTimer = 0.45;
+      graceTimer = RESPAWN_GRACE_TIME;
+
+      if (dependencies.gameState && dependencies.gameState.lives <= 0) {
+        gameOver = true;
+      }
+      return true;
+    }
+
     // Reaparición tras daño por abismo o derrumbe
     function respawnPlayer() {
       const tramo = getCurrentTramo();
@@ -1036,6 +1836,7 @@
       player.vy = 0;
       player.onGround = true;
       player.state = 'idle';
+      player.stepPhase = 0;
 
       invulTimer = BLINK_DURATION;
       hurtTimer = 0;
@@ -1059,7 +1860,9 @@
 
         for (let i = 0; i < bigRocks.length; i++) {
           const br = bigRocks[i];
-          if (!br.climbed && player.x >= br.x - 30 - CLIMB_RANGE && player.x <= br.x - 15) {
+          const triggerMin = br.x - br.w * 0.45 - CLIMB_RANGE;
+          const triggerMax = br.x - br.w * 0.25;
+          if (!br.climbed && player.x >= triggerMin && player.x <= triggerMax) {
             isClimbing = true;
             activeClimbRock = br;
             climbProgress = Math.min(CLIMB_PRESSES, climbProgress + 1);
@@ -1074,9 +1877,10 @@
       // 2. En Tramo 3 (Derrumbe): sprint hacia la salida por cada pulsación
       if (getCurrentTramo() === 3 && !completed) {
         collapseActive = true;
-        sprintPressTimer = 0.22;
+        sprintPressTimer = 0.28;
         player.x += SPRINT_STEP_PER_PRESS;
-        player.animTime += 0.3;
+        // Cada pulsación de ENTER da exactamente un paso visible alternando piernas (pi radianes)
+        player.stepPhase += Math.PI;
         player.facingRight = true;
         if (player.onGround) player.state = 'run';
 
@@ -1127,10 +1931,14 @@
 
     function update(dt) {
       if (dependencies.isPaused() || gameOver) return;
+      if (!levelInitialized) {
+        init(false);
+      }
 
       timer += dt;
       if (tutorialTimer > 0) tutorialTimer -= dt;
       if (invulTimer > 0) invulTimer -= dt;
+      if (hurtTimer > 0) hurtTimer -= dt;
       if (graceTimer > 0) graceTimer -= dt;
       if (enterBadgeAnimTimer > 0) enterBadgeAnimTimer -= dt;
 
@@ -1145,10 +1953,12 @@
         if (p.life >= p.maxLife) p.active = false;
       });
 
-      // Si el nivel ya fue completado, fundido de luz final hacia el Pino
+      // Si el nivel ya fue completado, avance suave hacia el Gran Pino (Nivel 6)
       if (completed) {
-        exitLightAlpha = Math.min(1.0, exitLightAlpha + dt * 1.2);
+        exitLightAlpha = Math.min(1.0, exitLightAlpha + dt * 1.5);
         player.x += 3.2;
+        player.stepPhase += (3.2 / 18) * Math.PI;
+        player.state = 'run';
         if (exitLightAlpha >= 1.0 && !transitionSent) {
           transitionSent = true;
           dependencies.switchState(dependencies.states.LEVEL3, 0.035, 0.4);
@@ -1172,7 +1982,7 @@
           br.climbed = true;
           isClimbing = false;
           climbProgress = 0;
-          player.x = br.x + br.w / 2 + 25;
+          player.x = br.x + br.w * 0.42 + 25;
           player.y = CAVE_GROUND_Y;
           player.state = 'idle';
           activeClimbRock = null;
@@ -1186,25 +1996,41 @@
         climbProgress = Math.max(0, climbProgress - CLIMB_DECAY * dt);
         const frac = Math.min(1.0, climbProgress / CLIMB_PRESSES);
 
-        // Posicionamiento en etapas visibles
-        if (frac < 0.4) {
-          // Etapa 1: agarrándose a la pared de la roca
-          const s1 = frac / 0.4;
-          player.x = (br.x - 32) + s1 * 8;
-          player.y = CAVE_GROUND_Y - s1 * (br.h * 0.45);
-        } else if (frac < 0.85) {
-          // Etapa 2: subiendo el torso y rodillas al borde superior
-          const s2 = (frac - 0.4) / 0.45;
-          player.x = (br.x - 24) + s2 * 18;
-          player.y = CAVE_GROUND_Y - (br.h * 0.45) - s2 * (br.h * 0.42);
+        // Escalada real en etapas visibles por la cara frontal de la roca
+        if (frac < 0.35) {
+          // Etapa 1: Manos en repisa 1 (-38px), pies levantándose del suelo
+          const s1 = frac / 0.35;
+          player.x = (br.x - br.w * 0.38) + s1 * 8;
+          player.y = CAVE_GROUND_Y - s1 * 38;
+          player.state = 'climbing';
+        } else if (frac < 0.70) {
+          // Etapa 2: Manos en repisa 2 (-75px), pies en repisa 1
+          const s2 = (frac - 0.35) / 0.35;
+          player.x = (br.x - br.w * 0.32) + s2 * 14;
+          player.y = CAVE_GROUND_Y - 38 - s2 * 38;
+          player.state = 'climbing';
+        } else if (frac < 0.90) {
+          // Etapa 3: Manos en la cresta superior (-115px), rodilla subiendo
+          const s3 = (frac - 0.70) / 0.20;
+          player.x = (br.x - br.w * 0.20) + s3 * 16;
+          player.y = CAVE_GROUND_Y - 76 - s3 * 35;
+          player.state = 'climbing';
         } else {
-          // Etapa 3: de pie en la cima de la roca
-          const s3 = (frac - 0.85) / 0.15;
-          player.x = (br.x - 6) + s3 * 10;
-          player.y = CAVE_GROUND_Y - br.h - 4;
+          // Etapa 4: De pie en la cima de la roca
+          const s4 = (frac - 0.90) / 0.10;
+          player.x = (br.x - 4) + s4 * 10;
+          player.y = CAVE_GROUND_Y - BIG_ROCK_BASE_HEIGHT;
+          player.state = 'idle';
         }
 
+        // Cámara vertical suave y lineal acompañando la escalada sin rebotes
+        const targetCamY = Math.max(0, (CAVE_GROUND_Y - player.y) * 0.45);
+        cameraY += (targetCamY - cameraY) * Math.min(1.0, 5.0 * dt);
+
         return; // Control bloqueado durante la subida
+      } else {
+        // Al terminar o bajar de la roca, la cámara vertical vuelve suavemente a 0
+        cameraY += (0 - cameraY) * Math.min(1.0, 5.0 * dt);
       }
 
       // --- 2. MOVIMIENTO Y SALTO DEL JUGADOR ---
@@ -1216,10 +2042,30 @@
         player.facingRight = (moveDir > 0);
         player.vx = moveDir * PLAYER_SPEED_NORMAL;
         player.animTime += dt * 8;
-        if (player.onGround) player.state = 'run';
+        if (player.onGround) {
+          player.state = 'run';
+          // Sincronización exacta de avance horizontal con paso de correr: 18px = 1 paso (pi rad)
+          const dx = Math.abs(player.vx);
+          player.stepPhase += (dx / 18) * Math.PI;
+        }
       } else {
         player.vx = 0;
-        if (player.onGround && hurtTimer <= 0) player.state = 'idle';
+        if (sprintPressTimer > 0) {
+          player.state = 'run';
+        } else if (player.onGround && hurtTimer <= 0) {
+          player.state = 'idle';
+          // Relajación suave hacia pose de reposo al detenerse
+          player.stepPhase = (player.stepPhase % (Math.PI * 2));
+          if (player.stepPhase > 0.05) {
+            player.stepPhase += (0 - player.stepPhase) * Math.min(1.0, 10.0 * dt);
+          } else {
+            player.stepPhase = 0;
+          }
+        }
+      }
+
+      if (sprintPressTimer > 0) {
+        sprintPressTimer -= dt;
       }
 
       // SALTO: Desactivado en Tramo 1; habilitado únicamente en Tramos 2 y 3
@@ -1251,8 +2097,9 @@
       let nextX = player.x + player.vx;
       for (let i = 0; i < bigRocks.length; i++) {
         const br = bigRocks[i];
-        if (!br.climbed && player.x <= br.x - 30 && nextX > br.x - 30) {
-          nextX = br.x - 30;
+        const blockX = br.x - br.w * 0.42;
+        if (!br.climbed && player.x <= blockX && nextX > blockX) {
+          nextX = blockX;
           player.vx = 0;
         }
       }
@@ -1291,13 +2138,11 @@
 
         // Caída al abismo
         if (player.y > ABYSS_DEPTH_Y) {
-          dependencies.gameState.loseLife();
           if (dependencies.audio && dependencies.audio.sfxSplash) {
             dependencies.audio.sfxSplash();
           }
-          if (dependencies.gameState.lives <= 0) {
-            gameOver = true;
-          } else {
+          takeDamage();
+          if (!gameOver) {
             respawnPlayer();
           }
         }
@@ -1325,7 +2170,7 @@
               r.x = targetX;
               r.y = 35;
               r.vy = 0;
-              r.radius = 18 + Math.random() * 4;
+              r.radius = Math.round((18 + Math.random() * 4) * FALLING_ROCK_SCALE);
               r.rot = Math.random() * Math.PI * 2;
               r.rotSpeed = (Math.random() - 0.5) * 3;
               r.variant = Math.floor(Math.random() * (rockFallingCanvases.length || 1));
@@ -1363,19 +2208,11 @@
           // Impacto en Anika (quita exactamente 1 vida)
           if (!r.hasHitPlayer && invulTimer <= 0 && !isClimbing) {
             const dist = Math.hypot(r.x - player.x, r.y - (player.y - 25));
-            if (dist < r.radius + 18) {
+            if (dist < r.radius * 0.85 + 16) {
               r.hasHitPlayer = true;
-              dependencies.gameState.loseLife();
-              invulTimer = BLINK_DURATION;
-              hurtTimer = 0.5;
-              graceTimer = RESPAWN_GRACE_TIME;
-
+              takeDamage();
               if (dependencies.audio && dependencies.audio.sfxRockImpact) {
                 dependencies.audio.sfxRockImpact();
-              }
-
-              if (dependencies.gameState.lives <= 0) {
-                gameOver = true;
               }
             }
           }
@@ -1434,14 +2271,12 @@
           });
 
           // Si el derrumbe alcanza a la niña
-          if (collapseX >= player.x - 18 && graceTimer <= 0) {
-            dependencies.gameState.loseLife();
+          if (collapseX >= player.x - 18 && graceTimer <= 0 && invulTimer <= 0) {
+            takeDamage();
             if (dependencies.audio && dependencies.audio.sfxRockImpact) {
               dependencies.audio.sfxRockImpact();
             }
-            if (dependencies.gameState.lives <= 0) {
-              gameOver = true;
-            } else {
+            if (!gameOver) {
               respawnPlayer();
             }
           }
@@ -1473,7 +2308,7 @@
 
         // 1. Fondo de cueva con paralaje
         ctx.save();
-        ctx.translate(-cameraX * 0.22, 0);
+        ctx.translate(-cameraX * 0.22, cameraY * 0.22);
         ctx.drawImage(bgCanvas, 0, 0);
         ctx.drawImage(bgCanvas, dependencies.width, 0);
         ctx.drawImage(bgCanvas, dependencies.width * 2, 0);
@@ -1481,7 +2316,7 @@
 
         // 2. Abismo con niebla violeta suave
         ctx.save();
-        ctx.translate(-cameraX * 0.5, 0);
+        ctx.translate(-cameraX * 0.5, cameraY * 0.35);
         ctx.drawImage(abyssCanvas, 0, 0);
         ctx.drawImage(abyssCanvas, dependencies.width, 0);
         ctx.drawImage(abyssCanvas, dependencies.width * 2, 0);
@@ -1489,7 +2324,7 @@
 
         // 3. Suelo de roca firme (Tramo 1)
         ctx.save();
-        ctx.translate(-cameraX, 0);
+        ctx.translate(-cameraX, cameraY);
 
         if (cameraX < TRAMO1_DIST) {
           ctx.drawImage(foreGroundCanvas, 0, 0);
@@ -1541,11 +2376,11 @@
 
           const cv = bigRockCanvases[br.variant % bigRockCanvases.length];
           if (cv) {
-            ctx.drawImage(cv, br.x - cv.width / 2, CAVE_GROUND_Y - cv.height + 14);
+            ctx.drawImage(cv, br.x - cv.width / 2, CAVE_GROUND_Y - 145);
           }
 
           // Cartel de interacción sobre la roca
-          const inRange = (!br.climbed && player.x >= br.x - 30 - CLIMB_RANGE && player.x <= br.x - 15);
+          const inRange = (!br.climbed && player.x >= br.x - br.w * 0.45 - CLIMB_RANGE && player.x <= br.x - br.w * 0.25);
           if (inRange || (isClimbing && activeClimbRock === br)) {
             ctx.save();
             const textY = CAVE_GROUND_Y - br.h - 52;
@@ -1658,20 +2493,25 @@
         ctx.arc(exitX, CAVE_GROUND_Y - 80, 220, 0, Math.PI * 2);
         ctx.fill();
 
-        // 10. Dibujar a Anika (sin sombras ovaladas debajo)
-        const shouldBlink = invulTimer > 0 && !dependencies.isPlayerBlinkVisible(invulTimer, BLINK_DURATION, BLINK_COUNT);
+        // 10. Dibujar a Anika con ciclo fluido y pies en suelo (sin sombras ovaladas debajo)
+        const shouldBlink = invulTimer > 0 && !(
+          typeof dependencies.isPlayerBlinkVisible === 'function'
+            ? dependencies.isPlayerBlinkVisible(invulTimer)
+            : (Math.floor(invulTimer * 8) % 2 === 0)
+        );
 
         if (!shouldBlink) {
           let girlState = player.state;
           if (isClimbing) {
-            girlState = (climbProgress >= CLIMB_PRESSES * 0.85) ? 'idle' : 'duck';
+            girlState = (climbProgress >= CLIMB_PRESSES * 0.90) ? 'idle' : 'climbing';
+          } else if (hurtTimer > 0) {
+            girlState = 'hurt';
           }
-          dependencies.drawGirl(ctx, player.x, player.y, {
+          drawAnika(ctx, player.x, player.y, {
             state: girlState,
             facingRight: player.facingRight,
-            throwDir: 'side',
-            animTime: player.animTime,
-            hasDuck: false
+            stepPhase: player.stepPhase,
+            animTime: player.animTime || timer
           });
         }
 
@@ -1720,12 +2560,16 @@
             ctx,
             () => {
               gameOver = false;
-              dependencies.gameState.retryLevel();
-              init();
+              if (dependencies.gameState && typeof dependencies.gameState.retryLevel === 'function') {
+                dependencies.gameState.retryLevel();
+              }
+              init(true);
             },
             () => {
               gameOver = false;
-              dependencies.gameState.resetLives(3);
+              if (dependencies.gameState && typeof dependencies.gameState.resetLives === 'function') {
+                dependencies.gameState.resetLives(3);
+              }
               dependencies.switchState(dependencies.states.MENU);
             }
           );
@@ -1749,8 +2593,8 @@
       }
       dependencies.drawInstructionBox(ctx, instrText, 24, 20, 480);
 
-      // 2. Corazones de vida compartida
-      dependencies.drawHearts(ctx, 24, 76, dependencies.gameState.lives, dependencies.gameState.maxLives);
+      // 2. Corazones de vida compartida (misma posición y lectura global que los demás niveles)
+      dependencies.drawHearts(ctx, dependencies.gameState.lives, 3, dependencies.width / 2, 56);
 
       // 3. Barra de progreso general del nivel
       const barW = 200;
