@@ -40,15 +40,14 @@
   // CONSTANTES DEL NIVEL 5: EL ESCAPE DE LA CUEVA
   // ==========================================
   const LEVEL5_TOTAL_DIST = 5200;      // Distancia total del nivel en píxeles
-  const TRAMO1_DIST = 2280;            // Fin del Tramo 1 (Derrumbe de rocas, sin salto)
-  const TRAMO2_DIST = 4120;            // Fin del Tramo 2 (Puente con huecos y salto)
-  // Tramo 3 va de TRAMO2_DIST a LEVEL5_TOTAL_DIST (Derrumbe del puente con sprint ENTER)
+  const TRAMO1_DIST = 2280;            // Fin del Tramo 1 (Derrumbe de rocas, sin salto, acantilado)
+  const BRIDGE_END_X = 5020;           // Fin del puente colgante y comienzo del acantilado de salida
 
-  // Físicas y movimiento
+  // Físicas y movimiento (salto idéntico al Nivel 2: Lobo)
   const PLAYER_SPEED_NORMAL = 4.8;     // Velocidad normal de carrera con flechas/A-D
-  const JUMP_FORCE_ESCAPE = -11.2;     // Impulso inicial del salto (Tramos 2 y 3)
-  const JUMP_HOLD_BOOST_ESCAPE = -0.30;// Salto variable al mantener presionada la tecla
-  const GRAVITY_ESCAPE = 0.58;         // Gravedad aplicada en el nivel
+  const JUMP_FORCE_ESCAPE = -8.8;      // Salto idéntico al Nivel 2 (JUMP_FORCE_WOLF)
+  const JUMP_HOLD_BOOST_ESCAPE = -0.18;// Salto variable idéntico al Nivel 2 (JUMP_HOLD_BOOST_WOLF)
+  const GRAVITY_ESCAPE = 0.58;         // Gravedad idéntica al Nivel 2 (GRAVITY)
   const CAVE_GROUND_Y = 540;           // Altura del suelo y del puente
   const ABYSS_DEPTH_Y = 690;           // Altura para detectar caída al abismo
 
@@ -68,19 +67,14 @@
   const ROCK_WARN_TIME = 0.8;          // Tiempo de aviso previo desde el techo (segundos)
   const EVENT_MIN_GAP = 120;           // Separación horizontal mínima para permitir esquivar caminando
 
-  // Obstáculos Tramo 2 (Puente con huecos)
+  // Obstáculos y derrumbe del puente colgante
   const HOLE_WARN_TIME = 0.7;          // Tiempo de aviso previo en tabla antes de caer
-
-  // Dinámica de ENTER en Tramo 3 (El Derrumbe)
-  const SPRINT_STEP_PER_PRESS = 28;    // Avance en píxeles por cada pulsación de ENTER
-  const COLLAPSE_SPEED = 144;          // Velocidad del derrumbe persiguiendo a la niña (+15%, de 125 a 144 px/s)
-  const SPRINT_REACTION_TIME = 2.5;    // Tiempo límite de aviso inicial antes del avance del derrumbe
-  const INITIAL_COLLAPSE_GAP = 220;    // Ventaja inicial de distancia de Anika sobre el derrumbe
+  const COLLAPSE_SPEED = 160;          // Velocidad constante del derrumbe (+15%, menor que carrera de la niña a 288 px/s)
 
   // Parpadeo e invulnerabilidad
   const BLINK_COUNT = 2;               // Parpadeo exacto requerido (visible/invisible x 2)
   const BLINK_DURATION = 1.0;          // Duración total de invulnerabilidad (1.0 s)
-  const RESPAWN_GRACE_TIME = 1.0;      // Gracia sin amenazas tras reaparecer
+  const RESPAWN_GRACE_TIME = 1.0;      // Gracia sin amenazas tras reaparecer (1.0 s)
 
   // Cinemática de salida hacia el Pino
   const CLIMB_OUT_TIME = 7.0;          // Duración escalando el pozo vertical hacia la luz (6-8 s)
@@ -1564,14 +1558,35 @@
     let livesAtLevelStart = 3;
     let levelInitialized = false;
 
+    let maxCameraX = 0; // Límite izquierdo que avanza con la cámara (no volver atrás)
+
     // Cinemática de salida hacia el Gran Pino (Nivel 6)
-    let exitCinePhase = 'shaft_climb'; // 'shaft_climb', 'surface_emerge', 'walk_to_tree', 'pine_climb'
+    let exitCinePhase = 'shaft_climb'; // 'shaft_climb', 'surface_emerge', 'walk_to_tree', 'tree_jump_branch', 'tree_climb_trunk'
     let exitCineTimer = 0;
     let exitCineGirlX = 0;
     let exitCineGirlY = 0;
+    let exitCineGirlState = 'climbing';
+    let exitCineFacingRight = true;
     let exitDustParticles = [];
     let exitFlashAlpha = 0;
     let exitFadeBlackAlpha = 0;
+
+    // Repisas del pozo vertical (29 repisas, separación vertical 30.0px <= 60% altura de la niña, zigzag suave)
+    const shaftLedges = [];
+    const SHAFT_TOTAL_LEDGES = 29;
+    const SHAFT_BOTTOM_Y = 950;
+    const SHAFT_TOP_Y = 110;
+    const SHAFT_STEP_DY = (SHAFT_BOTTOM_Y - SHAFT_TOP_Y) / (SHAFT_TOTAL_LEDGES - 1); // 30.0 px
+    for (let i = 0; i < SHAFT_TOTAL_LEDGES; i++) {
+      const ly = SHAFT_BOTTOM_Y - i * SHAFT_STEP_DY;
+      const lx = (i % 2 === 0) ? 604 : 676;
+      shaftLedges.push({
+        x: lx,
+        y: ly,
+        w: 68,
+        h: 14
+      });
+    }
 
     // Depuración (F3)
     let debugMode = false;
@@ -1598,11 +1613,9 @@
     let activeClimbRock = null;
     let enterBadgeAnimTimer = 0;       // Efecto de tecla hundida al presionar
 
-    // Dinámica de Sprint y Derrumbe del puente (Tramo 3)
+    // Dinámica de Derrumbe del puente colgante
     let collapseActive = false;
-    let collapseX = TRAMO2_DIST - INITIAL_COLLAPSE_GAP;
-    let sprintReactionTimer = SPRINT_REACTION_TIME;
-    let sprintPressTimer = 0;
+    let collapseX = TRAMO1_DIST - 100;
 
     // --- OBSTÁCULOS: ROCAS CAYENDO (TRAMO 1) ---
     const MAX_ROCKS = 8;
@@ -1631,36 +1644,42 @@
       { x: 1840, w: BIG_ROCK_WIDTH, h: BIG_ROCK_BASE_HEIGHT, climbed: false, variant: 1 }
     ];
 
-    // --- OBSTÁCULOS: TABLAS DEL PUENTE CON HUECOS (TRAMOS 2 Y 3) ---
+    // --- OBSTÁCULOS: TABLAS DEL PUENTE CON HUECOS ---
     const PLANK_WIDTH = 48;
     const bridgePlanks = [];
-    const totalBridgeLength = LEVEL5_TOTAL_DIST - TRAMO1_DIST;
+    const totalBridgeLength = BRIDGE_END_X - TRAMO1_DIST;
     const totalPlanks = Math.ceil(totalBridgeLength / PLANK_WIDTH);
 
-    // Huecos programados
+    // Huecos programados (máximo 2 tablas consecutivas = ~96px, fácilmente cruzables con el salto del Nivel 2: 145-193px)
     const holeIndices = new Set([
-      6, 7,        // Primer hueco en Tramo 2
-      14, 15,      // Segundo hueco
-      23, 24,      // Tercer hueco
-      32, 33,      // Cuarto hueco cerca del final de Tramo 2
-      46,          // Hueco aislado en Tramo 3
-      54           // Hueco final en Tramo 3
+      6, 7,        // Primer hueco (2 tablas)
+      14, 15,      // Segundo hueco (2 tablas)
+      23, 24,      // Tercer hueco (2 tablas)
+      32, 33,      // Cuarto hueco (2 tablas)
+      42, 43,      // Quinto hueco (2 tablas)
+      49           // Sexto hueco (1 tabla = 48px)
     ]);
+
+    // Tablas flojas que crujen y dan aviso previo de 0.7s antes de caer
+    const looseIndices = new Set([11, 20, 28, 38, 46]);
 
     for (let i = 0; i < totalPlanks; i++) {
       const px = TRAMO1_DIST + i * PLANK_WIDTH;
       bridgePlanks.push({
+        index: i,
         x: px,
         y: CAVE_GROUND_Y,
         w: PLANK_WIDTH - 4,
         h: 18,
         isHole: holeIndices.has(i),
-        isLoose: (i % 5 === 0 && !holeIndices.has(i)),
+        isLoose: looseIndices.has(i),
         creaked: false,
         warnTimer: HOLE_WARN_TIME,
         collapsed: false,
         falling: false,
-        vy: 0
+        vy: 0,
+        rot: 0,
+        rotSpeed: 0
       });
     }
 
@@ -1735,8 +1754,10 @@
 
       exitCinePhase = 'shaft_climb';
       exitCineTimer = 0;
-      exitCineGirlX = 0;
-      exitCineGirlY = 0;
+      exitCineGirlX = (shaftLedges.length > 0) ? shaftLedges[0].x : 604;
+      exitCineGirlY = (shaftLedges.length > 0) ? shaftLedges[0].y : 950;
+      exitCineGirlState = 'climbing';
+      exitCineFacingRight = true;
       exitFlashAlpha = 0;
       exitFadeBlackAlpha = 0;
       exitDustParticles = [];
@@ -1774,14 +1795,13 @@
       player.stepPhase = 0;
       player.jumpHold = false;
 
+      maxCameraX = 0;
       isClimbing = false;
       climbProgress = 0;
       activeClimbRock = null;
 
       collapseActive = false;
-      collapseX = TRAMO2_DIST - INITIAL_COLLAPSE_GAP;
-      sprintReactionTimer = SPRINT_REACTION_TIME;
-      sprintPressTimer = 0;
+      collapseX = TRAMO1_DIST - 100;
 
       rockPool.forEach(r => { r.active = false; });
       rockSpawnTimer = 1.8;
@@ -1793,7 +1813,10 @@
         p.warnTimer = HOLE_WARN_TIME;
         p.collapsed = false;
         p.falling = false;
+        p.y = CAVE_GROUND_Y;
         p.vy = 0;
+        p.rot = 0;
+        p.rotSpeed = 0;
       });
 
       particles.forEach(p => { p.active = false; });
@@ -1813,8 +1836,7 @@
 
     function getCurrentTramo() {
       if (player.x < TRAMO1_DIST) return 1;
-      if (player.x < TRAMO2_DIST) return 2;
-      return 3;
+      return 2;
     }
 
     // Sistema unificado de daño: quita exactamente 1 vida con invulnerabilidad y parpadeo
@@ -1841,15 +1863,8 @@
 
     // Reaparición tras daño por abismo o derrumbe
     function respawnPlayer() {
-      const tramo = getCurrentTramo();
-      if (tramo <= 2) {
-        player.x = TRAMO1_DIST + 45;
-      } else {
-        // En Tramo 3, reaparece al inicio del tramo 3 con el derrumbe reiniciado
-        player.x = TRAMO2_DIST + 35;
-        collapseX = TRAMO2_DIST - INITIAL_COLLAPSE_GAP;
-        sprintReactionTimer = SPRINT_REACTION_TIME;
-      }
+      // Reaparece exactamente al inicio del puente
+      player.x = TRAMO1_DIST + 40;
       player.y = CAVE_GROUND_Y;
       player.vx = 0;
       player.vy = 0;
@@ -1857,9 +1872,29 @@
       player.state = 'idle';
       player.stepPhase = 0;
 
+      // Derrumbe completamente reiniciado
+      collapseActive = false;
+      collapseX = TRAMO1_DIST - 100;
+
+      // Gracia de 1 segundo sin amenazas
       invulTimer = BLINK_DURATION;
       hurtTimer = 0;
       graceTimer = RESPAWN_GRACE_TIME;
+
+      // Restaurar todas las tablas colapsadas del puente
+      bridgePlanks.forEach(p => {
+        p.creaked = false;
+        p.warnTimer = HOLE_WARN_TIME;
+        p.collapsed = false;
+        p.falling = false;
+        p.y = CAVE_GROUND_Y;
+        p.vy = 0;
+        p.rot = 0;
+        p.rotSpeed = 0;
+      });
+
+      // Ajustar cámara para que el límite izquierdo no la bloquee
+      maxCameraX = Math.max(0, TRAMO1_DIST - dependencies.width * 0.38);
     }
 
     // --- ACCIÓN ENTER PRINCIPAL (REGISTRO POR PULSACIÓN INDIVIDUAL) ---
@@ -1867,7 +1902,7 @@
       enterPressCount++;
       enterBadgeAnimTimer = ENTER_MASH_FEEDBACK;
 
-      // 1. En Roca Grande (Tramo 1): trepar por etapas
+      // ÚNICAMENTE en Tramo 1 para trepar Rocas Grandes (no se usa en el puente)
       if (getCurrentTramo() === 1) {
         if (isClimbing && activeClimbRock) {
           climbProgress = Math.min(CLIMB_PRESSES, climbProgress + 1);
@@ -1891,22 +1926,6 @@
             return true;
           }
         }
-      }
-
-      // 2. En Tramo 3 (Derrumbe): sprint hacia la salida por cada pulsación
-      if (getCurrentTramo() === 3 && !completed) {
-        collapseActive = true;
-        sprintPressTimer = 0.28;
-        player.x += SPRINT_STEP_PER_PRESS;
-        // Cada pulsación de ENTER da exactamente un paso visible alternando piernas (pi radianes)
-        player.stepPhase += Math.PI;
-        player.facingRight = true;
-        if (player.onGround) player.state = 'run';
-
-        if (dependencies.audio && dependencies.audio.sfxSprint) {
-          dependencies.audio.sfxSprint();
-        }
-        return true;
       }
 
       return false;
@@ -1946,57 +1965,122 @@
         p.y += p.vy * dt;
         p.x += Math.sin(exitCineTimer * p.swayFreq + p.phase) * (p.swayAmp * 0.4) * dt;
         if (p.y < 0) {
-          p.y = dependencies.height;
+          p.y = dependencies.height + 150;
           p.x = (dependencies.width / 2) + (Math.random() - 0.5) * 220;
         }
       });
 
       if (exitCinePhase === 'shaft_climb') {
         const prog = Math.min(1.0, exitCineTimer / CLIMB_OUT_TIME);
-        // Subida suave y lineal sin rebote
-        const shaftTopY = 85;
-        const shaftBottomY = dependencies.height - 75;
-        exitCineGirlY = shaftBottomY - prog * (shaftBottomY - shaftTopY);
-        // Oscilación natural entre repisas a izquierda y derecha
-        exitCineGirlX = (dependencies.width / 2) + Math.sin(prog * Math.PI * 6) * 46;
+        const totalSteps = SHAFT_TOTAL_LEDGES - 1; // 28 pasos de repisa a repisa
+        const stepDuration = CLIMB_OUT_TIME / totalSteps;
+
+        const currentStep = Math.min(totalSteps - 1, Math.floor(exitCineTimer / stepDuration));
+        const stepProgress = (exitCineTimer - currentStep * stepDuration) / stepDuration;
+        const curLedge = shaftLedges[currentStep];
+        const nextLedge = shaftLedges[currentStep + 1];
+
+        exitCineFacingRight = (nextLedge.x >= curLedge.x);
+
+        if (stepProgress < 0.22) {
+          // Fase 1: Apoyo firme de botas en la repisa y flexión previa
+          exitCineGirlX = curLedge.x;
+          exitCineGirlY = curLedge.y;
+          exitCineGirlState = 'climbing';
+        } else if (stepProgress < 0.82) {
+          // Fase 2: Impulso natural en arco de salto corto hacia la repisa superior
+          const s = (stepProgress - 0.22) / 0.60;
+          const jumpArc = Math.sin(s * Math.PI) * 12;
+          exitCineGirlX = curLedge.x + s * (nextLedge.x - curLedge.x);
+          exitCineGirlY = curLedge.y + s * (nextLedge.y - curLedge.y) - jumpArc;
+          exitCineGirlState = 'jump';
+        } else {
+          // Fase 3: Aterrizaje firme con los pies sobre la repisa y manos agarradas
+          exitCineGirlX = nextLedge.x;
+          exitCineGirlY = nextLedge.y;
+          exitCineGirlState = 'climbing';
+        }
 
         if (prog >= 1.0) {
           exitCinePhase = 'surface_emerge';
           exitCineTimer = 0;
-          exitFlashAlpha = 0.92;
+          exitFlashAlpha = 0.95;
           if (dependencies.audio && dependencies.audio.sfxStep) dependencies.audio.sfxStep();
         }
       } else if (exitCinePhase === 'surface_emerge') {
         exitFlashAlpha = Math.max(0, exitFlashAlpha - dt * 1.5);
-        exitCineGirlX = 330;
-        exitCineGirlY = 560; // Con los pies sobre el pasto (560)
+        exitCineGirlX = 240;
+        exitCineGirlY = 560; // Pies sobre el pasto exterior (560)
+        exitCineGirlState = 'idle';
+        exitCineFacingRight = true;
+
         if (exitCineTimer >= SURFACE_LOOK_TIME) {
           exitCinePhase = 'walk_to_tree';
           exitCineTimer = 0;
         }
       } else if (exitCinePhase === 'walk_to_tree') {
         const prog = Math.min(1.0, exitCineTimer / WALK_TO_TREE_TIME);
-        const startX = 330;
-        const targetX = dependencies.width / 2; // Base del pino (640)
+        const startX = 240;
+        const targetX = (dependencies.width / 2) - 30; // 610, base del tronco del gran pino
         exitCineGirlX = startX + prog * (targetX - startX);
-        exitCineGirlY = 560; // Pies sobre el suelo
+        exitCineGirlY = 560; // Pies firmes sobre el pasto
+        exitCineGirlState = (prog >= 1.0) ? 'idle' : 'run';
+        exitCineFacingRight = true;
 
         if (prog >= 1.0) {
-          exitCinePhase = 'pine_climb';
+          exitCinePhase = 'tree_jump_branch';
           exitCineTimer = 0;
-          if (dependencies.audio && dependencies.audio.sfxJump) dependencies.audio.sfxJump();
         }
-      } else if (exitCinePhase === 'pine_climb') {
-        const JUMP_TIME = 0.55;
-        if (exitCineTimer <= JUMP_TIME) {
-          const jProg = exitCineTimer / JUMP_TIME;
-          const jumpArc = Math.sin(jProg * Math.PI) * 45;
-          exitCineGirlY = 560 - (jProg * 40) - jumpArc;
-          exitCineGirlX = dependencies.width / 2;
+      } else if (exitCinePhase === 'tree_jump_branch') {
+        const JUMP_BRANCH_TIME = 0.85;
+        const prog = Math.min(1.0, exitCineTimer / JUMP_BRANCH_TIME);
+        const branchX = dependencies.width / 2 - 10; // 630
+        const branchY = 515; // Primera rama gruesa baja del pino
+
+        if (prog < 0.2) {
+          // Flexión previa antes de impulsarse
+          exitCineGirlX = (dependencies.width / 2) - 30;
+          exitCineGirlY = 560;
+          exitCineGirlState = 'duck';
+          exitCineFacingRight = true;
+        } else if (prog < 0.78) {
+          // Salto en arco hacia la primera rama gruesa
+          const s = (prog - 0.2) / 0.58;
+          const jumpArc = Math.sin(s * Math.PI) * 26;
+          exitCineGirlX = (dependencies.width / 2 - 30) + s * 20;
+          exitCineGirlY = 560 + s * (branchY - 560) - jumpArc;
+          exitCineGirlState = 'jump';
+          exitCineFacingRight = true;
+          if (exitCineTimer - dt < 0.2 && dependencies.audio && dependencies.audio.sfxJump) {
+            dependencies.audio.sfxJump();
+          }
         } else {
-          exitCineGirlY = 520; // Rama base donde inicia el Nivel 6
-          exitCineGirlX = dependencies.width / 2;
-          const fadeProg = Math.min(1.0, (exitCineTimer - JUMP_TIME) / CINE_FADE_OUT_TIME);
+          // Aterrizaje firme con los pies sobre la rama
+          exitCineGirlX = branchX;
+          exitCineGirlY = branchY;
+          exitCineGirlState = 'idle';
+          exitCineFacingRight = true;
+        }
+
+        if (prog >= 1.0) {
+          exitCinePhase = 'tree_climb_trunk';
+          exitCineTimer = 0;
+          if (dependencies.audio && dependencies.audio.sfxClimb) dependencies.audio.sfxClimb();
+        }
+      } else if (exitCinePhase === 'tree_climb_trunk') {
+        const CLIMB_TRUNK_TIME = 2.2;
+        const prog = Math.min(1.0, exitCineTimer / CLIMB_TRUNK_TIME);
+        const startY = 515;
+        const targetY = 430; // Ascendiendo por el tronco hacia la copa
+
+        exitCineGirlX = (dependencies.width / 2 - 10) + Math.sin(exitCineTimer * 4.5) * 6;
+        exitCineGirlY = startY + prog * (targetY - startY);
+        exitCineGirlState = 'climbing';
+        exitCineFacingRight = true;
+
+        // Fundido suave a negro de 1 segundo hacia el nivel 6
+        if (exitCineTimer >= 1.1) {
+          const fadeProg = Math.min(1.0, (exitCineTimer - 1.1) / CINE_FADE_OUT_TIME);
           exitFadeBlackAlpha = fadeProg;
           if (fadeProg >= 1.0 && !transitionSent) {
             transitionSent = true;
@@ -2016,94 +2100,109 @@
         ctx.fillRect(0, 0, W, H);
 
         const shaftCenterX = W / 2;
-        const shaftLeft = shaftCenterX - 220;
-        const shaftRight = shaftCenterX + 220;
+        const shaftLeft = shaftCenterX - 110;
+        const shaftRight = shaftCenterX + 110;
+
+        // Cálculo de cámara suave y lineal sin rebote
+        const prog = Math.min(1.0, exitCineTimer / CLIMB_OUT_TIME);
+        const shaftCamY = (1.0 - prog) * (SHAFT_BOTTOM_Y - (H - 90));
+
+        ctx.save();
+        ctx.translate(0, -shaftCamY);
 
         // Pared rocosa izquierda
         ctx.fillStyle = '#2b1f33';
-        ctx.fillRect(0, 0, shaftLeft, H);
+        ctx.fillRect(0, -60, shaftLeft, SHAFT_BOTTOM_Y + 140);
         ctx.fillStyle = '#382842';
-        for (let y = -40; y < H + 60; y += 120) {
+        for (let y = -40; y < SHAFT_BOTTOM_Y + 120; y += 95) {
           ctx.beginPath();
-          ctx.roundRect(shaftLeft - 90, y, 90, 52, [0, 16, 16, 0]);
+          ctx.roundRect(shaftLeft - 90, y, 90, 48, [0, 16, 16, 0]);
           ctx.fill();
         }
 
         // Pared rocosa derecha
         ctx.fillStyle = '#2b1f33';
-        ctx.fillRect(shaftRight, 0, W - shaftRight, H);
+        ctx.fillRect(shaftRight, -60, W - shaftRight, SHAFT_BOTTOM_Y + 140);
         ctx.fillStyle = '#382842';
-        for (let y = 20; y < H + 60; y += 120) {
+        for (let y = 10; y < SHAFT_BOTTOM_Y + 120; y += 95) {
           ctx.beginPath();
-          ctx.roundRect(shaftRight, y, 90, 52, [16, 0, 0, 16]);
+          ctx.roundRect(shaftRight, y, 90, 48, [16, 0, 0, 16]);
           ctx.fill();
         }
 
-        // Repisas de piedra alternadas para escalar
-        ctx.fillStyle = '#4c3756';
-        ctx.strokeStyle = '#6a4d78';
-        ctx.lineWidth = 3;
-        for (let y = 60; y < H + 60; y += 140) {
-          ctx.beginPath();
-          ctx.roundRect(shaftLeft - 25, y, 75, 18, 9);
-          ctx.fill();
-          ctx.stroke();
-
-          ctx.beginPath();
-          ctx.roundRect(shaftRight - 50, y + 70, 75, 18, 9);
-          ctx.fill();
-          ctx.stroke();
-        }
+        // Haz de luz cálida cayendo desde la salida en el techo
+        const beamGrad = ctx.createLinearGradient(shaftCenterX, SHAFT_TOP_Y - 40, shaftCenterX, SHAFT_BOTTOM_Y + 40);
+        beamGrad.addColorStop(0, 'rgba(255, 235, 175, 0.48)');
+        beamGrad.addColorStop(0.35, 'rgba(255, 220, 145, 0.24)');
+        beamGrad.addColorStop(1, 'rgba(255, 205, 120, 0.03)');
+        ctx.fillStyle = beamGrad;
+        ctx.beginPath();
+        ctx.moveTo(shaftCenterX - 45, SHAFT_TOP_Y - 30);
+        ctx.lineTo(shaftCenterX + 45, SHAFT_TOP_Y - 30);
+        ctx.lineTo(shaftRight + 20, SHAFT_BOTTOM_Y + 40);
+        ctx.lineTo(shaftLeft - 20, SHAFT_BOTTOM_Y + 40);
+        ctx.closePath();
+        ctx.fill();
 
         // Raíces colgantes desde la superficie
         ctx.strokeStyle = '#4a3319';
         ctx.lineWidth = 4;
         ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(shaftLeft + 10, 0);
-        ctx.quadraticCurveTo(shaftLeft + 25, H * 0.3, shaftLeft - 5, H * 0.6);
-        ctx.quadraticCurveTo(shaftLeft + 15, H * 0.8, shaftLeft + 5, H);
+        ctx.moveTo(shaftLeft + 10, SHAFT_TOP_Y - 20);
+        ctx.quadraticCurveTo(shaftLeft + 25, SHAFT_BOTTOM_Y * 0.4, shaftLeft - 5, SHAFT_BOTTOM_Y * 0.7);
+        ctx.quadraticCurveTo(shaftLeft + 15, SHAFT_BOTTOM_Y * 0.9, shaftLeft + 5, SHAFT_BOTTOM_Y + 20);
         ctx.stroke();
 
         ctx.beginPath();
-        ctx.moveTo(shaftRight - 10, 0);
-        ctx.quadraticCurveTo(shaftRight - 28, H * 0.35, shaftRight + 5, H * 0.65);
-        ctx.quadraticCurveTo(shaftRight - 15, H * 0.85, shaftRight - 8, H);
+        ctx.moveTo(shaftRight - 10, SHAFT_TOP_Y - 20);
+        ctx.quadraticCurveTo(shaftRight - 28, SHAFT_BOTTOM_Y * 0.45, shaftRight + 5, SHAFT_BOTTOM_Y * 0.75);
+        ctx.quadraticCurveTo(shaftRight - 15, SHAFT_BOTTOM_Y * 0.92, shaftRight - 8, SHAFT_BOTTOM_Y + 20);
         ctx.stroke();
 
-        // Salpicaduras de musgo suave en raíces
+        // Musgo en paredes y raíces
         ctx.fillStyle = '#5b8c5a';
-        for (let y = 40; y < H; y += 90) {
+        for (let y = SHAFT_TOP_Y; y < SHAFT_BOTTOM_Y; y += 75) {
           ctx.beginPath();
-          ctx.arc(shaftLeft + 12 + Math.sin(y) * 8, y, 4.5, 0, Math.PI * 2);
+          ctx.arc(shaftLeft + 10 + Math.sin(y) * 6, y, 4, 0, Math.PI * 2);
           ctx.fill();
           ctx.beginPath();
-          ctx.arc(shaftRight - 12 + Math.cos(y) * 8, y + 35, 4.5, 0, Math.PI * 2);
+          ctx.arc(shaftRight - 10 + Math.cos(y) * 6, y + 25, 4, 0, Math.PI * 2);
           ctx.fill();
         }
 
-        // Haz de luz cálida cayendo desde la salida en el techo
-        const beamGrad = ctx.createLinearGradient(shaftCenterX, 0, shaftCenterX, H);
-        beamGrad.addColorStop(0, 'rgba(255, 235, 175, 0.46)');
-        beamGrad.addColorStop(0.4, 'rgba(255, 220, 145, 0.22)');
-        beamGrad.addColorStop(1, 'rgba(255, 205, 120, 0.04)');
-        ctx.fillStyle = beamGrad;
-        ctx.beginPath();
-        ctx.moveTo(shaftCenterX - 65, 0);
-        ctx.lineTo(shaftCenterX + 65, 0);
-        ctx.lineTo(shaftRight + 30, H);
-        ctx.lineTo(shaftLeft - 30, H);
-        ctx.closePath();
-        ctx.fill();
+        // Repisas de piedra alternadas (29 repisas, separación vertical 30px <= 60% de la niña)
+        shaftLedges.forEach(ledge => {
+          ctx.save();
+          const ledgeGrad = ctx.createLinearGradient(ledge.x, ledge.y - ledge.h, ledge.x, ledge.y);
+          ledgeGrad.addColorStop(0, '#584364');
+          ledgeGrad.addColorStop(1, '#3b2b44');
+          ctx.fillStyle = ledgeGrad;
+          ctx.strokeStyle = '#755885';
+          ctx.lineWidth = 2.5;
+
+          ctx.beginPath();
+          ctx.roundRect(ledge.x - ledge.w / 2, ledge.y - ledge.h, ledge.w, ledge.h, [5, 5, 4, 4]);
+          ctx.fill();
+          ctx.stroke();
+
+          // Capa de musgo verde pastel en la parte superior donde apoyan los pies
+          ctx.fillStyle = '#629e63';
+          ctx.beginPath();
+          ctx.roundRect(ledge.x - ledge.w / 2 + 4, ledge.y - ledge.h - 2, ledge.w - 8, 4, 2);
+          ctx.fill();
+
+          ctx.restore();
+        });
 
         // Apertura luminosa hacia la superficie arriba
         ctx.fillStyle = '#ffecb3';
         ctx.beginPath();
-        ctx.ellipse(shaftCenterX, 14, 85, 26, 0, 0, Math.PI * 2);
+        ctx.ellipse(shaftCenterX, SHAFT_TOP_Y - 25, 75, 24, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#fff9e6';
         ctx.beginPath();
-        ctx.ellipse(shaftCenterX, 10, 68, 18, 0, 0, Math.PI * 2);
+        ctx.ellipse(shaftCenterX, SHAFT_TOP_Y - 28, 58, 16, 0, 0, Math.PI * 2);
         ctx.fill();
 
         // Partículas de polvo doradas flotando en el haz
@@ -2111,18 +2210,19 @@
           ctx.save();
           ctx.fillStyle = `rgba(255, 245, 195, ${p.alpha})`;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y + shaftCamY * 0.4, p.size, 0, Math.PI * 2);
           ctx.fill();
           ctx.restore();
         });
 
-        // La niña trepando suave hacia la luz (misma animación de escalada en roca grande)
-        const climbFacing = Math.cos(exitCineTimer * 2.8) >= 0;
-        drawGirlEscape(ctx, exitCineGirlX, exitCineGirlY, {
-          state: 'climbing',
+        // La niña escalando con pies firmes en repisas
+        drawAnika(ctx, exitCineGirlX, exitCineGirlY, {
+          state: exitCineGirlState,
           animTime: exitCineTimer,
-          facingRight: climbFacing
+          facingRight: exitCineFacingRight
         });
+
+        ctx.restore();
 
       } else {
         // --- 2. SUPERFICIE: ATARDECER, MONTAÑAS Y EL GRAN PINO ---
@@ -2185,10 +2285,10 @@
         ctx.lineTo(pineBaseX + 48, 560);
         ctx.stroke();
 
-        // Primera rama gruesa donde aterriza la niña (y = 520 / 560)
+        // Primera rama gruesa donde aterriza la niña (y = 515 / 545)
         ctx.fillStyle = '#3a2416';
         ctx.beginPath();
-        ctx.roundRect(pineBaseX - 120, 545, 240, 20, 10);
+        ctx.roundRect(pineBaseX - 120, 515, 240, 20, 10);
         ctx.fill();
         ctx.strokeStyle = '#26170d';
         ctx.lineWidth = 3;
@@ -2198,7 +2298,7 @@
         ctx.fillStyle = '#264d36';
         for (let fx = pineBaseX - 140; fx <= pineBaseX + 140; fx += 35) {
           ctx.beginPath();
-          ctx.arc(fx, 555, 16, 0, Math.PI * 2);
+          ctx.arc(fx, 525, 16, 0, Math.PI * 2);
           ctx.fill();
         }
 
@@ -2226,17 +2326,10 @@
         ctx.stroke();
 
         // Niña animada en la superficie
-        let girlState = 'idle';
-        if (exitCinePhase === 'walk_to_tree') {
-          girlState = 'run';
-        } else if (exitCinePhase === 'pine_climb') {
-          girlState = (exitCineTimer < 0.55) ? 'jump' : 'climbing';
-        }
-
-        drawGirlEscape(ctx, exitCineGirlX, exitCineGirlY, {
-          state: girlState,
+        drawAnika(ctx, exitCineGirlX, exitCineGirlY, {
+          state: exitCineGirlState,
           animTime: exitCineTimer,
-          facingRight: true
+          facingRight: exitCineFacingRight
         });
 
         // Breve destello de luz al salir al exterior
@@ -2376,181 +2469,211 @@
           if (dependencies.audio && dependencies.audio.sfxStep) {
             dependencies.audio.sfxStep();
           }
-          return;
-        }
-
-        // Decaimiento suave si se deja de presionar
-        climbProgress = Math.max(0, climbProgress - CLIMB_DECAY * dt);
-        const frac = Math.min(1.0, climbProgress / CLIMB_PRESSES);
-
-        // Escalada real en etapas visibles por la cara frontal de la roca
-        if (frac < 0.35) {
-          // Etapa 1: Manos en repisa 1 (-38px), pies levantándose del suelo
-          const s1 = frac / 0.35;
-          player.x = (br.x - br.w * 0.38) + s1 * 8;
-          player.y = CAVE_GROUND_Y - s1 * 38;
-          player.state = 'climbing';
-        } else if (frac < 0.70) {
-          // Etapa 2: Manos en repisa 2 (-75px), pies en repisa 1
-          const s2 = (frac - 0.35) / 0.35;
-          player.x = (br.x - br.w * 0.32) + s2 * 14;
-          player.y = CAVE_GROUND_Y - 38 - s2 * 38;
-          player.state = 'climbing';
-        } else if (frac < 0.90) {
-          // Etapa 3: Manos en la cresta superior (-115px), rodilla subiendo
-          const s3 = (frac - 0.70) / 0.20;
-          player.x = (br.x - br.w * 0.20) + s3 * 16;
-          player.y = CAVE_GROUND_Y - 76 - s3 * 35;
-          player.state = 'climbing';
         } else {
-          // Etapa 4: De pie en la cima de la roca
-          const s4 = (frac - 0.90) / 0.10;
-          player.x = (br.x - 4) + s4 * 10;
-          player.y = CAVE_GROUND_Y - BIG_ROCK_BASE_HEIGHT;
-          player.state = 'idle';
+          // Decaimiento suave si se deja de presionar
+          climbProgress = Math.max(0, climbProgress - CLIMB_DECAY * dt);
+          const frac = Math.min(1.0, climbProgress / CLIMB_PRESSES);
+
+          // Escalada real en etapas visibles por la cara frontal de la roca
+          if (frac < 0.35) {
+            // Etapa 1: Manos en repisa 1 (-38px), pies levantándose del suelo
+            const s1 = frac / 0.35;
+            player.x = (br.x - br.w * 0.38) + s1 * 8;
+            player.y = CAVE_GROUND_Y - s1 * 38;
+            player.state = 'climbing';
+          } else if (frac < 0.70) {
+            // Etapa 2: Manos en repisa 2 (-75px), pies en repisa 1
+            const s2 = (frac - 0.35) / 0.35;
+            player.x = (br.x - br.w * 0.32) + s2 * 14;
+            player.y = CAVE_GROUND_Y - 38 - s2 * 38;
+            player.state = 'climbing';
+          } else if (frac < 0.90) {
+            // Etapa 3: Manos en la cresta superior (-115px), rodilla subiendo
+            const s3 = (frac - 0.70) / 0.20;
+            player.x = (br.x - br.w * 0.20) + s3 * 16;
+            player.y = CAVE_GROUND_Y - 76 - s3 * 35;
+            player.state = 'climbing';
+          } else {
+            // Etapa 4: De pie en la cima de la roca
+            const s4 = (frac - 0.90) / 0.10;
+            player.x = (br.x - 4) + s4 * 10;
+            player.y = CAVE_GROUND_Y - BIG_ROCK_BASE_HEIGHT;
+            player.state = 'idle';
+          }
         }
 
         // Cámara vertical suave y lineal acompañando la escalada sin rebotes
         const targetCamY = Math.max(0, (CAVE_GROUND_Y - player.y) * 0.45);
         cameraY += (targetCamY - cameraY) * Math.min(1.0, 5.0 * dt);
-
-        return; // Control bloqueado durante la subida
       } else {
         // Al terminar o bajar de la roca, la cámara vertical vuelve suavemente a 0
         cameraY += (0 - cameraY) * Math.min(1.0, 5.0 * dt);
       }
 
-      // --- 2. MOVIMIENTO Y SALTO DEL JUGADOR ---
-      let moveDir = 0;
-      if (dependencies.keys.left) moveDir -= 1;
-      if (dependencies.keys.right) moveDir += 1;
+      // --- 2. MOVIMIENTO Y SALTO DEL JUGADOR (BLOQUEADO SI ESTÁ TREPANDO) ---
+      if (!isClimbing) {
+        let moveDir = 0;
+        if (dependencies.keys.left) moveDir -= 1;
+        if (dependencies.keys.right) moveDir += 1;
 
-      if (moveDir !== 0) {
-        player.facingRight = (moveDir > 0);
-        player.vx = moveDir * PLAYER_SPEED_NORMAL;
-        player.animTime += dt * 8;
-        if (player.onGround) {
-          player.state = 'run';
-          // Sincronización exacta de avance horizontal con paso de correr: 18px = 1 paso (pi rad)
-          const dx = Math.abs(player.vx);
-          player.stepPhase += (dx / 18) * Math.PI;
-        }
-      } else {
-        player.vx = 0;
-        if (sprintPressTimer > 0) {
-          player.state = 'run';
-        } else if (player.onGround && hurtTimer <= 0) {
-          player.state = 'idle';
-          // Relajación suave hacia pose de reposo al detenerse
-          player.stepPhase = (player.stepPhase % (Math.PI * 2));
-          if (player.stepPhase > 0.05) {
-            player.stepPhase += (0 - player.stepPhase) * Math.min(1.0, 10.0 * dt);
-          } else {
-            player.stepPhase = 0;
+        if (moveDir !== 0) {
+          player.facingRight = (moveDir > 0);
+          player.vx = moveDir * PLAYER_SPEED_NORMAL;
+          player.animTime += dt * 8;
+          if (player.onGround) {
+            player.state = 'run';
+            // Sincronización exacta de avance horizontal con paso de correr: 18px = 1 paso (pi rad)
+            const dx = Math.abs(player.vx);
+            player.stepPhase += (dx / 18) * Math.PI;
           }
-        }
-      }
-
-      if (sprintPressTimer > 0) {
-        sprintPressTimer -= dt;
-      }
-
-      // SALTO: Desactivado en Tramo 1; habilitado únicamente en Tramos 2 y 3
-      if (currentTramo >= 2) {
-        if (dependencies.keys.jumpPressed && player.onGround) {
-          player.vy = JUMP_FORCE_ESCAPE;
-          player.onGround = false;
-          dependencies.keys.jumpPressed = false;
-          if (dependencies.audio && dependencies.audio.sfxJump) {
-            dependencies.audio.sfxJump();
-          }
-        }
-        if (player.vy < 0 && dependencies.keys.jump) {
-          player.vy += JUMP_HOLD_BOOST_ESCAPE;
-        }
-      } else {
-        // En Tramo 1 se ignora cualquier intento de salto
-        dependencies.keys.jumpPressed = false;
-      }
-
-      // Aplicar gravedad en tramos con salto o al estar en el aire
-      if (!player.onGround || currentTramo >= 2) {
-        player.vy += GRAVITY_ESCAPE;
-        player.y += player.vy;
-        if (!player.onGround) player.state = 'jump';
-      }
-
-      // Bloqueo horizontal frente a Rocas Grandes no trepadas
-      let nextX = player.x + player.vx;
-      for (let i = 0; i < bigRocks.length; i++) {
-        const br = bigRocks[i];
-        const blockX = br.x - br.w * 0.42;
-        if (!br.climbed && player.x <= blockX && nextX > blockX) {
-          nextX = blockX;
+        } else {
           player.vx = 0;
-        }
-      }
-      player.x = Math.max(40, nextX);
-
-      // Comprobar apoyo en suelo o puente
-      if (currentTramo === 1) {
-        // En Tramo 1 siempre está apoyada en el suelo
-        player.y = CAVE_GROUND_Y;
-        player.vy = 0;
-        player.onGround = true;
-      } else {
-        // En Tramos 2 y 3, apoyo sobre tablas que no sean huecos ni estén colapsadas
-        let hasSupport = false;
-        if (player.vy >= 0 && player.y >= CAVE_GROUND_Y - 4 && player.y <= CAVE_GROUND_Y + 12) {
-          const plank = bridgePlanks.find(p => !p.isHole && !p.collapsed && player.x >= p.x - 8 && player.x <= p.x + p.w + 8);
-          if (plank) {
-            hasSupport = true;
-            player.y = CAVE_GROUND_Y;
-            player.vy = 0;
-            player.onGround = true;
-
-            // Tabla floja cruje y comienza a caer
-            if (plank.isLoose && !plank.creaked) {
-              plank.creaked = true;
-              if (dependencies.audio && dependencies.audio.sfxPlankCreak) {
-                dependencies.audio.sfxPlankCreak();
-              }
+          if (player.onGround && hurtTimer <= 0) {
+            player.state = 'idle';
+            // Relajación suave hacia pose de reposo al detenerse
+            player.stepPhase = (player.stepPhase % (Math.PI * 2));
+            if (player.stepPhase > 0.05) {
+              player.stepPhase += (0 - player.stepPhase) * Math.min(1.0, 10.0 * dt);
+            } else {
+              player.stepPhase = 0;
             }
           }
         }
 
-        if (!hasSupport && player.y > CAVE_GROUND_Y + 8) {
-          player.onGround = false;
+        // SALTO: Desactivado en Tramo 1; habilitado en el puente (Tramo 2) con físicas exactas del Nivel 2
+        if (currentTramo >= 2) {
+          if (dependencies.keys.jumpPressed && player.onGround) {
+            player.vy = JUMP_FORCE_ESCAPE;
+            player.onGround = false;
+            dependencies.keys.jumpPressed = false;
+            if (dependencies.audio && dependencies.audio.sfxJump) {
+              dependencies.audio.sfxJump();
+            }
+          }
+          if (player.vy < 0 && dependencies.keys.jump) {
+            player.vy += JUMP_HOLD_BOOST_ESCAPE;
+          }
+        } else {
+          dependencies.keys.jumpPressed = false;
         }
 
-        // Caída al abismo
-        if (player.y > ABYSS_DEPTH_Y) {
-          if (dependencies.audio && dependencies.audio.sfxSplash) {
-            dependencies.audio.sfxSplash();
+        // Aplicar gravedad en el aire
+        if (!player.onGround || currentTramo >= 2) {
+          player.vy += GRAVITY_ESCAPE;
+          player.y += player.vy;
+          if (!player.onGround) player.state = 'jump';
+        }
+
+        // Bloqueo horizontal frente a Rocas Grandes
+        let nextX = player.x + player.vx;
+        for (let i = 0; i < bigRocks.length; i++) {
+          const br = bigRocks[i];
+          const leftBound = br.x - br.w * 0.42;
+          const rightBound = br.x + br.w * 0.42;
+
+          if (!br.climbed) {
+            // Aún no trepada: no puede atravesar hacia la derecha
+            if (player.x <= leftBound && nextX > leftBound) {
+              nextX = leftBound;
+              player.vx = 0;
+            }
+          } else {
+            // Ya trepada: la roca es sólida en ambas direcciones, no puede regresar hacia la izquierda
+            if (player.x >= rightBound && nextX < rightBound) {
+              nextX = rightBound;
+              player.vx = 0;
+            }
           }
-          takeDamage();
-          if (!gameOver) {
-            respawnPlayer();
+        }
+
+        // Límite izquierdo que avanza con la cámara (no puede retroceder por zonas ya superadas)
+        const targetCamX = Math.max(0, Math.min(LEVEL5_TOTAL_DIST - dependencies.width, player.x - dependencies.width * 0.38));
+        maxCameraX = Math.max(maxCameraX, targetCamX);
+
+        const cameraLeftLimit = maxCameraX + 28;
+        if (nextX < cameraLeftLimit) {
+          nextX = cameraLeftLimit;
+          if (player.vx < 0) player.vx = 0;
+        }
+        player.x = nextX;
+
+        // Comprobar apoyo en suelo o puente
+        if (currentTramo === 1) {
+          // En Tramo 1 siempre está apoyada en el suelo
+          player.y = CAVE_GROUND_Y;
+          player.vy = 0;
+          player.onGround = true;
+        } else {
+          // Tramo 2: Sobre el puente o sobre el acantilado de llegada
+          let hasSupport = false;
+
+          // Si ya cruzó al acantilado de llegada (x >= BRIDGE_END_X)
+          if (player.x >= BRIDGE_END_X) {
+            if (player.vy >= 0 && player.y >= CAVE_GROUND_Y - 6) {
+              hasSupport = true;
+              player.y = CAVE_GROUND_Y;
+              player.vy = 0;
+              player.onGround = true;
+            }
+          } else {
+            // Sobre las tablas del puente colgante
+            if (player.vy >= 0 && player.y >= CAVE_GROUND_Y - 6 && player.y <= CAVE_GROUND_Y + 12) {
+              const plank = bridgePlanks.find(p => !p.isHole && !p.collapsed && player.x >= p.x - 8 && player.x <= p.x + p.w + 8);
+              if (plank) {
+                hasSupport = true;
+                player.y = CAVE_GROUND_Y;
+                player.vy = 0;
+                player.onGround = true;
+
+                // Tabla floja cruje y comienza su cuenta atrás
+                if (plank.isLoose && !plank.creaked) {
+                  plank.creaked = true;
+                  if (dependencies.audio && dependencies.audio.sfxPlankCreak) {
+                    dependencies.audio.sfxPlankCreak();
+                  }
+                }
+              }
+            }
+          }
+
+          if (!hasSupport && player.y > CAVE_GROUND_Y + 6) {
+            player.onGround = false;
+          }
+
+          // Caída al abismo (pierde 1 vida y reaparece al inicio del puente)
+          if (player.y > ABYSS_DEPTH_Y) {
+            if (dependencies.audio && dependencies.audio.sfxSplash) {
+              dependencies.audio.sfxSplash();
+            }
+            takeDamage();
+            if (!gameOver) {
+              respawnPlayer();
+            }
           }
         }
       }
 
-      // --- 3. CAÍDA DE ROCAS EN TRAMO 1 ---
+      // --- 3. CAÍDA DE ROCAS EN TRAMO 1 (CONTINÚA SIEMPRE, INCLUSO AL TREPAR) ---
       if (currentTramo === 1 && graceTimer <= 0) {
         rockSpawnTimer -= dt;
         if (rockSpawnTimer <= 0) {
           rockSpawnTimer = ROCK_FALL_MIN + Math.random() * (ROCK_FALL_MAX - ROCK_FALL_MIN);
 
-          // Buscar columna adecuada dejando espacio libre horizontal
-          let targetX = player.x + 85 + Math.random() * 220;
+          // Buscar columna adecuada en la pantalla visible
+          const minSpawnX = Math.max(80, player.x - 260);
+          const maxSpawnX = Math.min(TRAMO1_DIST - 100, player.x + 360);
+          let targetX = minSpawnX + Math.random() * (maxSpawnX - minSpawnX);
 
-          // No caer sobre rocas grandes
-          const nearBigRock = bigRocks.some(br => Math.abs(targetX - br.x) < 85);
+          // No caer en la columna de ninguna roca grande
+          const nearBigRock = bigRocks.some(br => Math.abs(targetX - br.x) < br.w * 0.55);
+
+          // Si la niña está trepando, no caer en la columna de la niña
+          const nearClimbingGirl = isClimbing && Math.abs(targetX - player.x) < 85;
 
           // Mantener EVENT_MIN_GAP entre columnas para permitir esquivar caminando
           const nearOtherRock = rockPool.some(r => r.active && Math.abs(r.x - targetX) < EVENT_MIN_GAP);
 
-          if (!nearBigRock && !nearOtherRock && targetX < TRAMO1_DIST - 100) {
+          if (!nearBigRock && !nearClimbingGirl && !nearOtherRock) {
             const r = rockPool.find(item => !item.active);
             if (r) {
               r.active = true;
@@ -2617,48 +2740,37 @@
         }
       });
 
-      // --- 4. HUECOS Y COLAPSO DE TABLAS EN TRAMO 2 ---
-      bridgePlanks.forEach(p => {
-        if (p.creaked && !p.collapsed) {
-          p.warnTimer -= dt;
-          if (p.warnTimer <= 0) {
-            p.collapsed = true;
-            p.falling = true;
-            spawnDust(p.x + p.w / 2, CAVE_GROUND_Y + 10, 4, '#8a6e55');
-          }
-        }
-        if (p.falling) {
-          p.vy += GRAVITY_ESCAPE;
-          p.y += p.vy;
-          if (p.y > dependencies.height + 50) p.falling = false;
-        }
-      });
-
-      // --- 5. TRAMO 3: DERRUMBE EN CADENA Y SPRINT ---
-      if (currentTramo === 3) {
-        if (!collapseActive) {
-          if (sprintReactionTimer > 0) {
-            sprintReactionTimer -= dt;
-            if (sprintReactionTimer <= 0) {
-              collapseActive = true;
-            }
-          }
+      // --- 4. HUECOS Y DERRUMBE DEL PUENTE (TRAMO 2) ---
+      if (currentTramo >= 2) {
+        // El derrumbe se activa en cuanto Anika pisa el puente
+        if (!collapseActive && player.x >= TRAMO1_DIST) {
+          collapseActive = true;
+          collapseX = TRAMO1_DIST;
         }
 
         if (collapseActive) {
+          // Velocidad constante COLLAPSE_SPEED (160 px/s, ligeramente menor que la carrera normal de 288 px/s)
           collapseX += COLLAPSE_SPEED * dt;
+          if (collapseX > BRIDGE_END_X) collapseX = BRIDGE_END_X;
 
           // Derrumbar tablas que queden detrás
           bridgePlanks.forEach(p => {
-            if (p.x < collapseX && !p.collapsed) {
+            if (p.x + p.w <= collapseX && !p.collapsed) {
               p.collapsed = true;
               p.falling = true;
-              if (Math.random() < 0.4) spawnDust(p.x + p.w / 2, CAVE_GROUND_Y + 10, 3, '#755c46');
+              p.vy = 1.0 + Math.random() * 2.0;
+              p.rotSpeed = (Math.random() - 0.5) * 5;
+              if (Math.random() < 0.6) {
+                spawnDust(p.x + p.w / 2, CAVE_GROUND_Y + 10, 4, '#8a6e55');
+              }
+              if (Math.random() < 0.3) {
+                spawnShatterFragments(p.x + p.w / 2, CAVE_GROUND_Y + 10);
+              }
             }
           });
 
-          // Si el derrumbe alcanza a la niña
-          if (collapseX >= player.x - 18 && graceTimer <= 0 && invulTimer <= 0) {
+          // Si el derrumbe alcanza a la niña antes del acantilado de destino (pierde 1 vida y reaparece al inicio del puente)
+          if (collapseX >= player.x - 14 && graceTimer <= 0 && invulTimer <= 0 && player.x < BRIDGE_END_X) {
             takeDamage();
             if (dependencies.audio && dependencies.audio.sfxRockImpact) {
               dependencies.audio.sfxRockImpact();
@@ -2669,11 +2781,27 @@
           }
         }
 
-        if (sprintPressTimer > 0) {
-          sprintPressTimer -= dt;
-        }
+        // Tablas flojas que crujieron: aviso previo de HOLE_WARN_TIME (0.7 s) antes de caer
+        bridgePlanks.forEach(p => {
+          if (p.creaked && !p.collapsed) {
+            p.warnTimer -= dt;
+            if (p.warnTimer <= 0) {
+              p.collapsed = true;
+              p.falling = true;
+              p.vy = 1.2;
+              p.rotSpeed = (Math.random() - 0.5) * 4;
+              spawnDust(p.x + p.w / 2, CAVE_GROUND_Y + 10, 5, '#8a6e55');
+            }
+          }
+          if (p.falling) {
+            p.vy += GRAVITY_ESCAPE;
+            p.y += p.vy;
+            p.rot += p.rotSpeed * dt;
+            if (p.y > dependencies.height + 60) p.falling = false;
+          }
+        });
 
-        // Salida de la cueva al llegar al final
+        // Salida de la cueva al llegar al final del acantilado
         if (player.x >= LEVEL5_TOTAL_DIST - 60 && !completed) {
           completed = true;
           exitCinePhase = 'shaft_climb';
@@ -2686,6 +2814,98 @@
       }
     }
 
+    // --- POSTES DE ANCLAJE EN LOS ACANTILADOS ---
+    function drawAnchorPost(ctx, x, groundY, isLeft) {
+      ctx.save();
+      const pw = 20;
+      const ph = 68;
+      const topY = groundY - 50;
+
+      // Sombra proyectada del poste
+      ctx.fillStyle = 'rgba(20, 14, 28, 0.45)';
+      ctx.beginPath();
+      ctx.ellipse(x, groundY + 2, 14, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Madero vertical principal
+      const postGrad = ctx.createLinearGradient(x - pw / 2, 0, x + pw / 2, 0);
+      postGrad.addColorStop(0, '#533924');
+      postGrad.addColorStop(0.3, '#735235');
+      postGrad.addColorStop(0.8, '#8a6442');
+      postGrad.addColorStop(1, '#48301e');
+      ctx.fillStyle = postGrad;
+      ctx.beginPath();
+      ctx.roundRect(x - pw / 2, topY, pw, ph, [5, 5, 2, 2]);
+      ctx.fill();
+
+      // Borde del madero
+      ctx.strokeStyle = '#322013';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Remates metálicos / herrajes empernados a la roca
+      ctx.fillStyle = '#423447';
+      ctx.strokeStyle = '#6a5770';
+      ctx.lineWidth = 1.5;
+      // Abrazadera inferior
+      ctx.beginPath();
+      ctx.roundRect(x - pw / 2 - 2, groundY - 14, pw + 4, 10, 2);
+      ctx.fill();
+      ctx.stroke();
+      // Pernos dorados/brillantes
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath();
+      ctx.arc(x - 5, groundY - 9, 2, 0, Math.PI * 2);
+      ctx.arc(x + 5, groundY - 9, 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Abrazadera superior con argolla de donde sale la cuerda principal
+      ctx.fillStyle = '#423447';
+      ctx.beginPath();
+      ctx.roundRect(x - pw / 2 - 2, topY + 12, pw + 4, 10, 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Argolla de hierro
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(x + (isLeft ? 8 : -8), topY + 17, 5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Vueltas de cuerda enrollada en el poste
+      ctx.strokeStyle = '#caa57a';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(x - pw / 2, topY + 28);
+      ctx.lineTo(x + pw / 2, topY + 31);
+      ctx.moveTo(x - pw / 2, topY + 33);
+      ctx.lineTo(x + pw / 2, topY + 36);
+      ctx.stroke();
+
+      // Cuerda de retención anclada hacia atrás en la roca (guy-rope)
+      ctx.strokeStyle = '#9c7b56';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      if (isLeft) {
+        ctx.moveTo(x - 4, topY + 16);
+        ctx.lineTo(x - 55, groundY - 4);
+      } else {
+        ctx.moveTo(x + 4, topY + 16);
+        ctx.lineTo(x + 55, groundY - 4);
+      }
+      ctx.stroke();
+
+      // Piquete de anclaje de la cuerda en la tierra
+      ctx.fillStyle = '#ffd166';
+      ctx.beginPath();
+      const stakeX = isLeft ? x - 55 : x + 55;
+      ctx.roundRect(stakeX - 3, groundY - 8, 6, 12, 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
     // --- RENDERIZADO DEL NIVEL ---
     function draw(ctx) {
       if (completed) {
@@ -2696,9 +2916,9 @@
 
       ctx.save();
       try {
-        // Cálculo de cámara suave sin rebotes
-        let cameraX = player.x - dependencies.width * 0.38;
-        cameraX = Math.max(0, Math.min(LEVEL5_TOTAL_DIST - dependencies.width, cameraX));
+        // Cálculo de cámara suave sin rebotes (únicamente avanza con límite izquierdo fijo)
+        const targetCamX = Math.max(0, Math.min(LEVEL5_TOTAL_DIST - dependencies.width, player.x - dependencies.width * 0.38));
+        const cameraX = Math.max(maxCameraX, targetCamX);
 
         // 1. Fondo de cueva con paralaje
         ctx.save();
@@ -2716,53 +2936,231 @@
         ctx.drawImage(abyssCanvas, dependencies.width * 2, 0);
         ctx.restore();
 
-        // 3. Suelo de roca firme (Tramo 1)
+        // 3. Suelo de roca firme del Tramo 1 (recortado exactamente en el acantilado x = TRAMO1_DIST)
         ctx.save();
         ctx.translate(-cameraX, cameraY);
 
-        if (cameraX < TRAMO1_DIST) {
+        if (cameraX < TRAMO1_DIST + 100) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, CAVE_GROUND_Y, TRAMO1_DIST, dependencies.height - CAVE_GROUND_Y);
+          ctx.clip();
           ctx.drawImage(foreGroundCanvas, 0, 0);
           ctx.drawImage(foreGroundCanvas, dependencies.width, 0);
+          ctx.restore();
         }
 
-        // 4. Tablas del puente colgante (Tramos 2 y 3)
-        bridgePlanks.forEach(p => {
-          if (p.x + p.w < cameraX - 50 || p.x > cameraX + dependencies.width + 50) return;
-          if (p.isHole && !p.falling) return;
-
+        // Borde vertical de roca y acantilado de inicio (x = TRAMO1_DIST)
+        if (TRAMO1_DIST >= cameraX - 100 && TRAMO1_DIST <= cameraX + dependencies.width + 100) {
           ctx.save();
-          ctx.translate(p.x, p.y);
-
-          // Tabla de madera
-          ctx.fillStyle = p.creaked ? '#996f4c' : '#7d593b';
+          // Cara rocosa vertical hacia el abismo
+          const cliffGrad = ctx.createLinearGradient(TRAMO1_DIST - 50, 0, TRAMO1_DIST, 0);
+          cliffGrad.addColorStop(0, '#433452');
+          cliffGrad.addColorStop(0.7, '#342646');
+          cliffGrad.addColorStop(1, '#231830');
+          ctx.fillStyle = cliffGrad;
           ctx.beginPath();
-          ctx.roundRect(0, 0, p.w, p.h, 4);
+          ctx.moveTo(TRAMO1_DIST, CAVE_GROUND_Y);
+          ctx.lineTo(TRAMO1_DIST, dependencies.height);
+          ctx.lineTo(TRAMO1_DIST - 50, dependencies.height);
+          ctx.lineTo(TRAMO1_DIST - 50, CAVE_GROUND_Y);
+          ctx.closePath();
           ctx.fill();
 
-          ctx.strokeStyle = '#5a3d24';
-          ctx.lineWidth = 2;
+          // Estratos y grietas de la roca vertical
+          ctx.strokeStyle = '#1a1224';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          for (let cy = CAVE_GROUND_Y + 18; cy < dependencies.height; cy += 32) {
+            ctx.moveTo(TRAMO1_DIST - 42, cy);
+            ctx.lineTo(TRAMO1_DIST - 2, cy + (cy % 10) - 5);
+          }
           ctx.stroke();
 
-          // Remaches / cuerda en los bordes
-          ctx.fillStyle = '#bda078';
+          // Arista superior iluminada
+          ctx.strokeStyle = 'rgba(255, 230, 200, 0.45)';
+          ctx.lineWidth = 2.5;
           ctx.beginPath();
-          ctx.arc(4, p.h / 2, 2.5, 0, Math.PI * 2);
-          ctx.arc(p.w - 4, p.h / 2, 2.5, 0, Math.PI * 2);
+          ctx.moveTo(TRAMO1_DIST - 1, CAVE_GROUND_Y);
+          ctx.lineTo(TRAMO1_DIST - 1, dependencies.height);
+          ctx.stroke();
+
+          // Poste de anclaje de madera clavado y empernado en la roca del acantilado
+          drawAnchorPost(ctx, TRAMO1_DIST - 14, CAVE_GROUND_Y, true);
+          ctx.restore();
+        }
+
+        // Acantilado de llegada y suelo firme de destino (x = BRIDGE_END_X hasta LEVEL5_TOTAL_DIST)
+        if (BRIDGE_END_X <= cameraX + dependencies.width + 100) {
+          ctx.save();
+          // Suelo de roca firme en el lado opuesto
+          const rightGroundGrad = ctx.createLinearGradient(0, CAVE_GROUND_Y, 0, dependencies.height);
+          rightGroundGrad.addColorStop(0, '#564268');
+          rightGroundGrad.addColorStop(0.3, '#433452');
+          rightGroundGrad.addColorStop(1, '#2a2034');
+          ctx.fillStyle = rightGroundGrad;
+          ctx.fillRect(BRIDGE_END_X, CAVE_GROUND_Y, LEVEL5_TOTAL_DIST - BRIDGE_END_X + 200, dependencies.height - CAVE_GROUND_Y);
+
+          // Borde superior iluminado del suelo
+          ctx.strokeStyle = 'rgba(255, 230, 200, 0.35)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(BRIDGE_END_X, CAVE_GROUND_Y + 1);
+          ctx.lineTo(LEVEL5_TOTAL_DIST + 200, CAVE_GROUND_Y + 1);
+          ctx.stroke();
+
+          // Cara rocosa vertical del acantilado de llegada bajando al abismo
+          const rightCliffGrad = ctx.createLinearGradient(BRIDGE_END_X, 0, BRIDGE_END_X + 50, 0);
+          rightCliffGrad.addColorStop(0, '#231830');
+          rightCliffGrad.addColorStop(0.3, '#342646');
+          rightCliffGrad.addColorStop(1, '#433452');
+          ctx.fillStyle = rightCliffGrad;
+          ctx.beginPath();
+          ctx.moveTo(BRIDGE_END_X, CAVE_GROUND_Y);
+          ctx.lineTo(BRIDGE_END_X, dependencies.height);
+          ctx.lineTo(BRIDGE_END_X + 50, dependencies.height);
+          ctx.lineTo(BRIDGE_END_X + 50, CAVE_GROUND_Y);
+          ctx.closePath();
           ctx.fill();
 
+          // Estratos y grietas en pared derecha
+          ctx.strokeStyle = '#1a1224';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          for (let cy = CAVE_GROUND_Y + 22; cy < dependencies.height; cy += 34) {
+            ctx.moveTo(BRIDGE_END_X + 2, cy + (cy % 10) - 5);
+            ctx.lineTo(BRIDGE_END_X + 42, cy);
+          }
+          ctx.stroke();
+
+          // Arista derecha iluminada
+          ctx.strokeStyle = 'rgba(255, 230, 200, 0.35)';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(BRIDGE_END_X + 1, CAVE_GROUND_Y);
+          ctx.lineTo(BRIDGE_END_X + 1, dependencies.height);
+          ctx.stroke();
+
+          // Poste de anclaje derecho
+          drawAnchorPost(ctx, BRIDGE_END_X + 14, CAVE_GROUND_Y, false);
+          ctx.restore();
+        }
+
+        // 4. Puente colgante real: cuerdas, tirantes y tablas de madera sobre el abismo
+        // Cuerda pasamanos superior y cable inferior de soporte
+        const ropeStart = Math.max(TRAMO1_DIST, collapseActive ? collapseX : TRAMO1_DIST);
+        if (ropeStart < BRIDGE_END_X) {
+          ctx.save();
+
+          // Cuerda pasamanos superior
+          ctx.strokeStyle = '#cda97e';
+          ctx.lineWidth = 3.8;
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          for (let bx = ropeStart; bx <= BRIDGE_END_X; bx += 24) {
+            const sag = Math.sin(((bx - TRAMO1_DIST) / (BRIDGE_END_X - TRAMO1_DIST)) * Math.PI) * 12;
+            const ry = CAVE_GROUND_Y - 32 + sag;
+            if (bx === ropeStart) ctx.moveTo(bx, ry);
+            else ctx.lineTo(bx, ry);
+          }
+          ctx.lineTo(BRIDGE_END_X + 14, CAVE_GROUND_Y - 32);
+          ctx.stroke();
+
+          // Cable inferior de soporte bajo las tablas
+          ctx.strokeStyle = '#7c5837';
+          ctx.lineWidth = 4.2;
+          ctx.beginPath();
+          for (let bx = ropeStart; bx <= BRIDGE_END_X; bx += 24) {
+            const sag = Math.sin(((bx - TRAMO1_DIST) / (BRIDGE_END_X - TRAMO1_DIST)) * Math.PI) * 14;
+            const ry = CAVE_GROUND_Y + 12 + sag;
+            if (bx === ropeStart) ctx.moveTo(bx, ry);
+            else ctx.lineTo(bx, ry);
+          }
+          ctx.lineTo(BRIDGE_END_X + 14, CAVE_GROUND_Y + 12);
+          ctx.stroke();
+
+          // Tirantes verticales que unen el pasamanos con las tablas cada 2 tablas (96 px)
+          ctx.strokeStyle = 'rgba(205, 169, 126, 0.78)';
+          ctx.lineWidth = 2.4;
+          for (let tx = Math.ceil(ropeStart / 96) * 96; tx <= BRIDGE_END_X; tx += 96) {
+            const sagTop = Math.sin(((tx - TRAMO1_DIST) / (BRIDGE_END_X - TRAMO1_DIST)) * Math.PI) * 12;
+            const sagBot = Math.sin(((tx - TRAMO1_DIST) / (BRIDGE_END_X - TRAMO1_DIST)) * Math.PI) * 14;
+            ctx.beginPath();
+            ctx.moveTo(tx, CAVE_GROUND_Y - 32 + sagTop);
+            ctx.lineTo(tx, CAVE_GROUND_Y + 12 + sagBot);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        // Tablas del puente colgante
+        bridgePlanks.forEach(p => {
+          if (p.x + p.w < cameraX - 60 || p.x > cameraX + dependencies.width + 60) return;
+          if (p.isHole && !p.falling) return;
+          if (p.collapsed && !p.falling) return;
+
+          ctx.save();
+          if (p.falling) {
+            ctx.translate(p.x + p.w / 2, p.y + p.h / 2);
+            ctx.rotate(p.rot);
+            ctx.fillStyle = '#65442b';
+            ctx.beginPath();
+            ctx.roundRect(-p.w / 2, -p.h / 2, p.w, p.h, 4);
+            ctx.fill();
+            ctx.strokeStyle = '#3e2716';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          } else {
+            const shake = (p.creaked && !p.collapsed) ? Math.sin((HOLE_WARN_TIME - p.warnTimer) * 45) * 2.2 : 0;
+            ctx.translate(p.x, p.y + shake);
+
+            // Tabla de madera en estilo pastel cálido
+            ctx.fillStyle = p.creaked ? '#9c6f4a' : '#7d5738';
+            ctx.beginPath();
+            ctx.roundRect(0, 0, p.w, p.h, 4);
+            ctx.fill();
+
+            // Veta de luz en la tabla
+            ctx.fillStyle = p.creaked ? '#b0825c' : '#946944';
+            ctx.fillRect(4, 2, p.w - 8, 4);
+
+            // Borde inferior sombreado
+            ctx.fillStyle = '#4c311c';
+            ctx.fillRect(2, p.h - 4, p.w - 4, 3);
+
+            // Contorno de madera
+            ctx.strokeStyle = '#3d2514';
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+
+            // Anillas de cuerda en los extremos
+            ctx.fillStyle = '#c5a77d';
+            ctx.beginPath();
+            ctx.arc(5, p.h / 2, 2.6, 0, Math.PI * 2);
+            ctx.arc(p.w - 5, p.h / 2, 2.6, 0, Math.PI * 2);
+            ctx.fill();
+          }
           ctx.restore();
         });
 
-        // Cuerdas del puente colgante
-        ctx.strokeStyle = 'rgba(168, 134, 98, 0.65)';
-        ctx.lineWidth = 3.5;
-        ctx.beginPath();
-        for (let bx = TRAMO1_DIST; bx <= LEVEL5_TOTAL_DIST; bx += 70) {
-          const sy = CAVE_GROUND_Y - 22 + Math.sin(bx * 0.03) * 6;
-          if (bx === TRAMO1_DIST) ctx.moveTo(bx, sy);
-          else ctx.lineTo(bx, sy);
+        // Frente de derrumbe con polvo y cuerdas rotas colgando
+        if (collapseActive && collapseX >= TRAMO1_DIST && collapseX <= BRIDGE_END_X) {
+          ctx.save();
+          // Cuerda rota colgante
+          ctx.strokeStyle = '#a6825a';
+          ctx.lineWidth = 3.2;
+          ctx.beginPath();
+          ctx.moveTo(collapseX, CAVE_GROUND_Y - 26);
+          ctx.quadraticCurveTo(collapseX - 18, CAVE_GROUND_Y - 6, collapseX - 28, CAVE_GROUND_Y + 28);
+          ctx.stroke();
+
+          // Nube de polvo de derrumbe
+          ctx.fillStyle = 'rgba(125, 98, 76, 0.45)';
+          ctx.beginPath();
+          ctx.ellipse(collapseX, CAVE_GROUND_Y + 12, 52, 24, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
         }
-        ctx.stroke();
 
         // 5. Rocas gigantes macizas (Tramo 1)
         bigRocks.forEach(br => {
@@ -2868,15 +3266,7 @@
           ctx.restore();
         });
 
-        // 8. Polvo y derrumbe en Tramo 3
-        if (getCurrentTramo() === 3 && collapseActive) {
-          ctx.fillStyle = 'rgba(100, 78, 62, 0.45)';
-          ctx.beginPath();
-          ctx.ellipse(collapseX, CAVE_GROUND_Y + 15, 60, 25, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        // 9. Salida de la cueva hacia el Gran Pino (Nivel 6)
+        // 8. Salida de la cueva hacia el Gran Pino (Nivel 6)
         const exitX = LEVEL5_TOTAL_DIST - 80;
         const exitGrad = ctx.createRadialGradient(exitX, CAVE_GROUND_Y - 80, 20, exitX, CAVE_GROUND_Y - 80, 220);
         exitGrad.addColorStop(0, 'rgba(255, 245, 215, 0.95)');
@@ -2887,7 +3277,7 @@
         ctx.arc(exitX, CAVE_GROUND_Y - 80, 220, 0, Math.PI * 2);
         ctx.fill();
 
-        // 10. Dibujar a Anika con ciclo fluido y pies en suelo (sin sombras ovaladas debajo)
+        // 9. Dibujar a Anika con ciclo fluido y pies en suelo (sin sombras ovaladas debajo)
         const shouldBlink = invulTimer > 0 && !(
           typeof dependencies.isPlayerBlinkVisible === 'function'
             ? dependencies.isPlayerBlinkVisible(invulTimer)
@@ -2911,44 +3301,16 @@
 
         ctx.restore(); // Fin de espacio de cámara
 
-        // 11. Aviso grande de Derrumbe en Tramo 3
-        if (getCurrentTramo() === 3 && !completed) {
-          ctx.save();
-          const bannerY = 85;
-          const msg = '¡El puente se derrumba! Presiona ENTER varias veces para correr';
-          ctx.font = '700 20px Fredoka, Quicksand, sans-serif';
-          const tw = ctx.measureText(msg).width;
-          const bw = tw + 40;
-          const bh = 44;
-
-          ctx.fillStyle = 'rgba(38, 22, 28, 0.92)';
-          ctx.beginPath();
-          ctx.roundRect((dependencies.width - bw) / 2, bannerY, bw, bh, 14);
-          ctx.fill();
-
-          ctx.strokeStyle = '#ffd166';
-          ctx.lineWidth = 2.5;
-          ctx.stroke();
-
-          ctx.fillStyle = '#ffffff';
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(msg, dependencies.width / 2, bannerY + bh / 2);
-
-          drawEnterKeyBadge(ctx, dependencies.width / 2, bannerY - 24, enterBadgeAnimTimer > 0);
-          ctx.restore();
-        }
-
-        // 12. Fundido blanco cálido de victoria / salida
+        // 10. Fundido blanco cálido de victoria / salida
         if (exitLightAlpha > 0) {
           ctx.fillStyle = `rgba(255, 248, 220, ${exitLightAlpha})`;
           ctx.fillRect(0, 0, dependencies.width, dependencies.height);
         }
 
-        // 13. HUD general
+        // 11. HUD general
         drawHUD(ctx);
 
-        // 14. Modal de Game Over
+        // 12. Modal de Game Over
         if (gameOver) {
           dependencies.drawGameOverModal(
             ctx,
@@ -2980,12 +3342,10 @@
       // 1. Instrucción superior izquierda
       let instrText = 'Nivel 5: Muévete con las flechas y esquiva las rocas';
       const tramo = getCurrentTramo();
-      if (tramo === 2) {
-        instrText = 'Nivel 5: Salta los huecos del puente colgante';
-      } else if (tramo === 3) {
-        instrText = 'Nivel 5: ¡Corre! Presiona ENTER para escapar del derrumbe';
+      if (tramo >= 2) {
+        instrText = 'Nivel 5: ¡Avanza y salta los huecos! El puente se derrumba';
       }
-      dependencies.drawInstructionBox(ctx, instrText, 24, 20, 480);
+      dependencies.drawInstructionBox(ctx, instrText, 24, 20, 500);
 
       // 2. Corazones de vida compartida (misma posición y lectura global que los demás niveles)
       dependencies.drawHearts(ctx, dependencies.gameState.lives, 3, dependencies.width / 2, 56);
@@ -3020,8 +3380,8 @@
       ctx.fillText('ESCAPE', barX - 10, barY + 11);
       ctx.restore();
 
-      // 4. Indicador de distancia al derrumbe en Tramo 3
-      if (tramo === 3 && collapseActive) {
+      // 4. Indicador de distancia al derrumbe
+      if (tramo >= 2 && collapseActive && player.x < BRIDGE_END_X) {
         ctx.save();
         const distBoxW = 190;
         const distBoxH = 36;

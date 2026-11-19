@@ -670,12 +670,12 @@
 
       if (phase === 'fall') {
         const fallProg = Math.min(1.0, elapsed / CAVE_FALL_DURATION);
-        // Caída desde la parte superior del cuadro acelerando suavemente hacia el suelo
+        // Caída desde el hueco superior acelerando hacia el suelo, sin jamás atravesarlo
         const easeY = fallProg * fallProg;
-        girlY = -60 + easeY * (CAVE_GROUND_Y - (-60));
+        girlY = Math.min(CAVE_GROUND_Y, -60 + easeY * (CAVE_GROUND_Y - (-60)));
 
         if (fallProg >= 1.0) {
-          girlY = CAVE_GROUND_Y; // Colocada firmemente sobre el suelo de la cueva
+          girlY = CAVE_GROUND_Y; // Colocada con precisión exacta sobre el suelo de la cueva
           phase = 'land';
           elapsed = 0;
           if (dependencies.audio && dependencies.audio.sfxStep) {

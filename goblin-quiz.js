@@ -12,7 +12,7 @@
   const GOBLIN_TRUNK_ROOT_X = 826;
   const GOBLIN_WALK_TARGET_X = GOBLIN_TRUNK_ROOT_X - GOBLIN_STOP_DISTANCE / CAMERA_ZOOM - 16;
   const LEAVES_PILE_X = 635;
-  const FALL_TIME = 0.9;
+  const FALL_TIME = 0.75;
   const DIALOGUE_MIN_TIME = 3.5;
   const DIALOGUE_SECONDS_PER_CHARACTER = 0.06;
   const GOBLIN_QUIZ_CONFIG = {
@@ -1456,11 +1456,6 @@
 
     function drawHoleAndLeaves(ctx) {
       if (substate === 'holeFall' || (substate === 'transitioning' && victoryGirlX >= LEAVES_PILE_X)) {
-        ctx.fillStyle = '#221510';
-        ctx.beginPath();
-        ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY, 36, 12, 0, 0, Math.PI * 2);
-        ctx.fill();
-
         holeLeaves.forEach((leaf) => {
           ctx.save();
           const curX = LEAVES_PILE_X + leaf.relX + leaf.vx * elapsed;
@@ -1495,14 +1490,32 @@
       girlOptions.animTime = elapsed;
       girlOptions.facingRight = true;
 
-      drawHoleAndLeaves(ctx);
-
       if (substate === 'holeFall') {
-        girlOptions.state = 'fall_hole';
-        const fallProg = Math.min(1, elapsed / FALL_TIME);
-        girlY = GOBLIN_QUIZ_CONFIG.groundY + fallProg * 170;
-        dependencies.drawGirl(ctx, girlX, girlY, girlOptions);
+        // 1. Fondo oscuro del pozo antes de la niña
+        ctx.fillStyle = '#1c100c';
+        ctx.beginPath();
+        ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY, 36, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(LEAVES_PILE_X - 35, GOBLIN_QUIZ_CONFIG.groundY, 70, 100);
 
+        // 2. La niña cayendo DENTRO del pozo: recortada (clip) con máscara para que jamás atraviese el suelo
+        ctx.save();
+        ctx.beginPath();
+        // Máscara del pozo: solo visible en el tiro vertical del pozo y desapareciendo hacia abajo
+        ctx.rect(LEAVES_PILE_X - 35, -500, 70, GOBLIN_QUIZ_CONFIG.groundY + 10);
+        ctx.clip();
+
+        girlOptions.state = 'fall_hole';
+        const fallProg = Math.min(1.0, elapsed / 0.55);
+        girlY = GOBLIN_QUIZ_CONFIG.groundY + fallProg * 75;
+        dependencies.drawGirl(ctx, girlX, girlY, girlOptions);
+        ctx.restore();
+
+        // 3. Suelo de tierra y borde frontal del hueco dibujados ENCIMA de la niña (la tapan por completo)
+        ctx.fillStyle = '#86583b';
+        ctx.fillRect(LEAVES_PILE_X - 55, GOBLIN_QUIZ_CONFIG.groundY + 6, 110, 180);
+
+        // Borde frontal de césped
         ctx.fillStyle = '#78a85d';
         ctx.beginPath();
         ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY + 3, 38, 10, 0, 0, Math.PI);
@@ -1510,7 +1523,18 @@
         ctx.strokeStyle = '#a6bf70';
         ctx.lineWidth = 2.5;
         ctx.stroke();
+
+        // 4. Hojas cayendo y dispersándose
+        drawHoleAndLeaves(ctx);
+
+        // 5. Fundido corto a negro cuando la niña ya desapareció por el pozo
+        if (elapsed >= 0.55) {
+          const fadeAlpha = Math.min(1.0, (elapsed - 0.55) / (FALL_TIME - 0.55));
+          ctx.fillStyle = `rgba(18, 12, 24, ${fadeAlpha})`;
+          ctx.fillRect(-dependencies.width, -dependencies.height, dependencies.width * 3, dependencies.height * 3);
+        }
       } else {
+        drawHoleAndLeaves(ctx);
         girlOptions.state = (substate === 'victoryExit' && victoryGirlX < LEAVES_PILE_X) ? 'run' : 'idle';
         dependencies.drawGirl(ctx, girlX, girlY, girlOptions);
       }

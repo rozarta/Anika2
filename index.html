@@ -5895,8 +5895,8 @@
       if (btnDuck && btnEnter && btnJump) {
         if (currentState === STATE.CAVE_ESCAPE) {
           btnDuck.style.display = 'none';
-          btnEnter.style.display = 'flex';
           const tramo = (typeof caveEscape !== 'undefined' && caveEscape.getCurrentTramo) ? caveEscape.getCurrentTramo() : 1;
+          btnEnter.style.display = (tramo === 1) ? 'flex' : 'none';
           // En Tramo 1 no se puede saltar, se oculta el botón de salto
           btnJump.style.display = (tramo === 1) ? 'none' : 'flex';
         } else {
