@@ -15,12 +15,12 @@
   const BAT_MAX_SIMULTANEOUS = 4;      // Cantidad máxima de murciélagos simultáneos en pantalla (último tercio)
   const BAT_SPAWN_MIN = 1.5;           // Intervalo mínimo entre apariciones de murciélagos en segundos
   const BAT_SPAWN_MAX = 3.0;           // Intervalo máximo entre apariciones de murciélagos en segundos
-  const BAT_TIME_PER_LETTER = 0.95;    // Tiempo adicional por letra para leer y escribir (~40% más que antes)
-  const BAT_BASE_TIME = 3.20;          // Tiempo base de llegada del murciélago (~25% más que antes)
-  const BAT_MIN_READ_TIME = 2.5;       // Tiempo mínimo visible y legible antes de llegar a la niña
+  const BAT_TIME_PER_LETTER = 0.81;    // Reducido 15% (de 0.95 a 0.81) para aumentar la velocidad de vuelo un 15%
+  const BAT_BASE_TIME = 2.72;          // Reducido 15% (de 3.20 a 2.72) para aumentar la velocidad de vuelo un 15%
+  const BAT_MIN_READ_TIME = 2.5;       // Tiempo mínimo visible y legible antes de llegar a la niña (mantenido)
   const BAT_MAX_PENDING_LETTERS = 15;  // Carga máxima de letras pendientes en pantalla antes de pausar spawns
   const BAT_SPEED_RAMP = 1.10;         // Incremento máximo de velocidad en el último tercio (10%)
-  const TYPO_TIME_PENALTY = 0.3;       // Penalización suave de tiempo por letra errónea (máximo 1.0 s total por murciélago)
+  const TYPO_TIME_PENALTY = 0;         // Equivocarse de letra sigue sin acelerarlos
   const TYPO_TOLERANCE = 0;            // Tolerancia de errores tipográficos (mantenida por compatibilidad)
   const BAT_MIN_SEPARATION = 75;       // Separación mínima entre murciélagos para evitar carteles superpuestos
   const LEVEL4_DURATION = 35.0;        // Duración total del nivel en segundos
@@ -610,27 +610,31 @@
   // ==========================================
   function createCaveCinematic(dependencies) {
     let elapsed = 0;
-    let phase = 'land';
+    let phase = 'fall'; // 'fall', 'land', 'recover', 'run'
     let girlX = 380;
-    const girlY = CAVE_GROUND_Y;
+    let girlY = -60;
     let transitionStarted = false;
     let leaves = [];
+    let dustPuffs = [];
+    const CAVE_FALL_DURATION = 0.85;
 
     function init() {
       elapsed = 0;
-      phase = 'land';
+      phase = 'fall';
       girlX = 380;
+      girlY = -60;
       transitionStarted = false;
+      dustPuffs = [];
 
       leaves = [];
       const leafColors = ['#d48046', '#e5a350', '#b9663d', '#dfbb66', '#a65d38'];
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         leaves.push({
-          x: 350 + Math.random() * 80,
-          y: 70 + Math.random() * 80,
-          vy: 35 + Math.random() * 30,
+          x: 350 + Math.random() * 60,
+          y: -20 + Math.random() * 80,
+          vy: 60 + Math.random() * 40,
           swayFreq: 2 + Math.random() * 2,
-          swayAmp: 12 + Math.random() * 15,
+          swayAmp: 14 + Math.random() * 14,
           color: leafColors[i % leafColors.length],
           rot: Math.random() * Math.PI * 2,
           size: 4 + Math.random() * 3
@@ -645,6 +649,7 @@
     }
 
     function update(dt) {
+      if (dependencies.isPaused && dependencies.isPaused()) return;
       elapsed += dt;
 
       leaves.forEach((l) => {
@@ -656,17 +661,53 @@
         }
       });
 
-      if (phase === 'land') {
+      dustPuffs.forEach((p) => {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= dt;
+      });
+      dustPuffs = dustPuffs.filter((p) => p.life > 0);
+
+      if (phase === 'fall') {
+        const fallProg = Math.min(1.0, elapsed / CAVE_FALL_DURATION);
+        // Caída desde la parte superior del cuadro acelerando suavemente hacia el suelo
+        const easeY = fallProg * fallProg;
+        girlY = -60 + easeY * (CAVE_GROUND_Y - (-60));
+
+        if (fallProg >= 1.0) {
+          girlY = CAVE_GROUND_Y; // Colocada firmemente sobre el suelo de la cueva
+          phase = 'land';
+          elapsed = 0;
+          if (dependencies.audio && dependencies.audio.sfxStep) {
+            dependencies.audio.sfxStep();
+          }
+          // Pequeñas nubes de polvo pastel redondeadas al aterrizar
+          for (let i = 0; i < 8; i++) {
+            dustPuffs.push({
+              x: girlX + (i % 2 === 0 ? -12 : 12) + (Math.random() - 0.5) * 8,
+              y: CAVE_GROUND_Y - 2,
+              vx: (i % 2 === 0 ? -1 : 1) * (24 + Math.random() * 36),
+              vy: -10 - Math.random() * 14,
+              radius: 3 + Math.random() * 3.5,
+              life: 0.38,
+              maxLife: 0.38
+            });
+          }
+        }
+      } else if (phase === 'land') {
+        girlY = CAVE_GROUND_Y;
         if (elapsed >= GOBLIN_LAUGH_TIME) {
           phase = 'recover';
           elapsed = 0;
         }
       } else if (phase === 'recover') {
+        girlY = CAVE_GROUND_Y;
         if (elapsed >= 0.85) {
           phase = 'run';
           elapsed = 0;
         }
       } else if (phase === 'run') {
+        girlY = CAVE_GROUND_Y;
         girlX += 210 * dt;
         if (girlX > 640 && !transitionStarted) {
           transitionStarted = true;
@@ -689,8 +730,9 @@
       const holeX = 380;
       const holeY = 40;
 
+      // Columna de luz cálida que entra por el hueco
       const lightBeam = ctx.createLinearGradient(holeX, holeY, holeX + 20, CAVE_GROUND_Y);
-      lightBeam.addColorStop(0, 'rgba(255, 240, 200, 0.22)');
+      lightBeam.addColorStop(0, 'rgba(255, 240, 200, 0.24)');
       lightBeam.addColorStop(1, 'rgba(255, 240, 200, 0.02)');
       ctx.fillStyle = lightBeam;
       ctx.beginPath();
@@ -701,6 +743,7 @@
       ctx.closePath();
       ctx.fill();
 
+      // Borde del hueco en el techo
       ctx.fillStyle = '#2b213b';
       ctx.beginPath();
       ctx.ellipse(holeX, holeY, 48, 16, 0, 0, Math.PI * 2);
@@ -709,11 +752,13 @@
       ctx.lineWidth = 3;
       ctx.stroke();
 
+      // Abertura hacia el exterior con cielo azul
       ctx.fillStyle = '#78c6e8';
       ctx.beginPath();
       ctx.ellipse(holeX, holeY - 2, 40, 11, 0, 0, Math.PI * 2);
       ctx.fill();
 
+      // Duende asomado al borde del hueco
       if (dependencies.goblinQuiz && dependencies.goblinQuiz.drawGoblin) {
         ctx.save();
         const laughBob = Math.sin(elapsed * 13) * 3;
@@ -725,7 +770,8 @@
         ctx.restore();
       }
 
-      if (phase === 'land') {
+      // Globo de diálogo del duende mientras se ríe
+      if (phase === 'land' || phase === 'fall') {
         const dialogText = 'Ja, ja, ja. Cuidado con las hojas';
         ctx.font = '600 19px Fredoka, Quicksand, sans-serif';
         const tw = ctx.measureText(dialogText).width;
@@ -770,6 +816,18 @@
 
       ctx.drawImage(caveForeCanvas, 0, 0);
 
+      // Partículas de polvo de aterrizaje
+      dustPuffs.forEach((p) => {
+        ctx.save();
+        const alpha = Math.max(0, p.life / p.maxLife) * 0.55;
+        ctx.fillStyle = `rgba(215, 195, 180, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Hojas secas flotando
       leaves.forEach((l) => {
         ctx.save();
         const swayX = Math.sin(elapsed * l.swayFreq) * l.swayAmp;
@@ -782,8 +840,11 @@
         ctx.restore();
       });
 
+      // Estado de la niña según la fase
       let girlAnim = 'sit';
-      if (phase === 'recover') girlAnim = 'dust_off';
+      if (phase === 'fall') girlAnim = 'fall_hole';
+      else if (phase === 'land') girlAnim = 'sit';
+      else if (phase === 'recover') girlAnim = 'dust_off';
       else if (phase === 'run') girlAnim = 'run';
 
       dependencies.drawGirl(ctx, girlX, girlY, {
@@ -794,6 +855,28 @@
       });
 
       dependencies.drawLogo(ctx, dependencies.logoSize);
+
+      // Botón SALTAR sutil
+      const skipX = 75, skipY = 26, skipW = 110, skipH = 34;
+      const skipHover = dependencies.mouse &&
+        Math.abs(dependencies.mouse.x - skipX) < skipW / 2 &&
+        Math.abs(dependencies.mouse.y - skipY) < skipH / 2;
+
+      ctx.save();
+      ctx.fillStyle = skipHover ? 'rgba(255, 255, 255, 0.32)' : 'rgba(255, 255, 255, 0.18)';
+      ctx.beginPath();
+      ctx.roundRect(skipX - skipW / 2, skipY - skipH / 2, skipW, skipH, 17);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      ctx.fillStyle = '#fff';
+      ctx.font = '600 14px Fredoka, Quicksand, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SALTAR', skipX, skipY);
+      ctx.restore();
 
       if (dependencies.mouse && dependencies.mouse.clicked) {
         dependencies.mouse.clicked = false;

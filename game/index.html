@@ -468,11 +468,27 @@
   let isPaused = false;
 
   function togglePause() {
-    // Pausa habilitada durante los niveles de juego y el desafío del duende.
-    if (currentState !== STATE.LEVEL1 && currentState !== STATE.LEVEL2 && currentState !== STATE.GOBLIN_QUIZ && currentState !== STATE.LEVEL3) {
+    // Pausa habilitada durante los niveles de juego (1, 2, 3, 4, 5 y 6)
+    if (
+      currentState !== STATE.LEVEL1 &&
+      currentState !== STATE.LEVEL2 &&
+      currentState !== STATE.GOBLIN_QUIZ &&
+      currentState !== STATE.CAVE_TYPING &&
+      currentState !== STATE.CAVE_ESCAPE &&
+      currentState !== STATE.LEVEL3
+    ) {
       return;
     }
     isPaused = !isPaused;
+    mouse.clicked = false;
+    mouse.down = false;
+    keys.left = false;
+    keys.right = false;
+    keys.jump = false;
+    keys.jumpPressed = false;
+    keys.duck = false;
+    keys.enter = false;
+    keys.esc = false;
     if (isPaused) {
       pauseToggleBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5l12 7-12 7z"/></svg>';
       pauseToggleBtn.title = 'Reanudar juego (P / Esc)';
@@ -488,6 +504,11 @@
     e.stopPropagation();
     togglePause();
   });
+  pauseToggleBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    togglePause();
+  }, { passive: false });
 
   // Detección de táctil
   const isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
@@ -958,6 +979,10 @@
         e.preventDefault();
         return;
       }
+      if (isPaused) {
+        e.preventDefault();
+        return;
+      }
       if (e.code === 'F3') {
         if (typeof caveLevel !== 'undefined' && caveLevel.toggleDebug) {
           caveLevel.toggleDebug();
@@ -984,6 +1009,10 @@
     if (currentState === STATE.CAVE_ESCAPE) {
       if (e.code === 'Escape' || e.code === 'KeyP') {
         togglePause();
+        e.preventDefault();
+        return;
+      }
+      if (isPaused) {
         e.preventDefault();
         return;
       }
@@ -1128,6 +1157,10 @@
   const tiElem = document.getElementById('typingInput');
   if (tiElem) {
     tiElem.addEventListener('input', () => {
+      if (isPaused) {
+        tiElem.value = '';
+        return;
+      }
       if (currentState === STATE.CAVE_TYPING && typeof caveLevel !== 'undefined') {
         const val = tiElem.value;
         if (val) {
@@ -5874,8 +5907,15 @@
     const dt = Math.min(0.1, elapsed / 1000);
     lastTime = now - (elapsed % FRAME_INTERVAL);
 
-    // Actualizar visibilidad del botón de pausa (solo en los niveles 1, 2 y 3)
-    const canPause = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.GOBLIN_QUIZ || currentState === STATE.CAVE_TYPING || currentState === STATE.LEVEL3);
+    // Actualizar visibilidad del botón de pausa (activo en niveles 1, 2, 3, 4, 5 y 6)
+    const canPause = (
+      currentState === STATE.LEVEL1 ||
+      currentState === STATE.LEVEL2 ||
+      currentState === STATE.GOBLIN_QUIZ ||
+      currentState === STATE.CAVE_TYPING ||
+      currentState === STATE.CAVE_ESCAPE ||
+      currentState === STATE.LEVEL3
+    );
     pauseToggleBtn.style.display = canPause ? 'flex' : 'none';
     if (isTouchDevice) {
       const showTouch = (currentState === STATE.LEVEL1 || currentState === STATE.LEVEL2 || currentState === STATE.CAVE_ESCAPE || currentState === STATE.LEVEL3);

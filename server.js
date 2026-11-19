@@ -22,6 +22,11 @@ const server = http.createServer((req, res) => {
       '.png': 'image/png',
       '.jpg': 'image/jpeg',
       '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon',
+      '.json': 'application/json',
+      '.wav': 'audio/wav',
+      '.mp3': 'audio/mpeg',
+      '.ogg': 'audio/ogg',
       '.ttf': 'font/ttf',
       '.woff': 'font/woff',
       '.woff2': 'font/woff2'

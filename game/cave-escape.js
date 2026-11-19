@@ -73,7 +73,7 @@
 
   // Dinámica de ENTER en Tramo 3 (El Derrumbe)
   const SPRINT_STEP_PER_PRESS = 28;    // Avance en píxeles por cada pulsación de ENTER
-  const COLLAPSE_SPEED = 125;          // Velocidad del derrumbe persiguiendo a la niña (px/s)
+  const COLLAPSE_SPEED = 144;          // Velocidad del derrumbe persiguiendo a la niña (+15%, de 125 a 144 px/s)
   const SPRINT_REACTION_TIME = 2.5;    // Tiempo límite de aviso inicial antes del avance del derrumbe
   const INITIAL_COLLAPSE_GAP = 220;    // Ventaja inicial de distancia de Anika sobre el derrumbe
 
@@ -84,8 +84,10 @@
 
   // Cinemática de salida hacia el Pino
   const CLIMB_OUT_TIME = 7.0;          // Duración escalando el pozo vertical hacia la luz (6-8 s)
-  const SURFACE_LOOK_TIME = 2.0;       // Tiempo mirando alrededor en la superficie exterior
+  const SURFACE_LOOK_TIME = 1.8;       // Tiempo mirando alrededor en la superficie exterior
   const WALK_TO_TREE_TIME = 3.2;       // Tiempo caminando hacia la base del Gran Pino
+  const PINE_CLIMB_TIME = 1.4;         // Tiempo saltando a la primera rama y trepando
+  const CINE_FADE_OUT_TIME = 1.0;      // Fundido a negro suave (aprox. 1 s)
 
   // ==========================================
   // CANVASES OFFSCREEN PRE-RENDERIZADOS
@@ -1562,6 +1564,15 @@
     let livesAtLevelStart = 3;
     let levelInitialized = false;
 
+    // Cinemática de salida hacia el Gran Pino (Nivel 6)
+    let exitCinePhase = 'shaft_climb'; // 'shaft_climb', 'surface_emerge', 'walk_to_tree', 'pine_climb'
+    let exitCineTimer = 0;
+    let exitCineGirlX = 0;
+    let exitCineGirlY = 0;
+    let exitDustParticles = [];
+    let exitFlashAlpha = 0;
+    let exitFadeBlackAlpha = 0;
+
     // Depuración (F3)
     let debugMode = false;
     let debugLastKey = 'Ninguna';
@@ -1721,6 +1732,14 @@
       transitionSent = false;
       exitLightAlpha = 0;
       cameraY = 0;
+
+      exitCinePhase = 'shaft_climb';
+      exitCineTimer = 0;
+      exitCineGirlX = 0;
+      exitCineGirlY = 0;
+      exitFlashAlpha = 0;
+      exitFadeBlackAlpha = 0;
+      exitDustParticles = [];
 
       enterPressCount = 0;
       enterBadgeAnimTimer = 0;
@@ -1897,11 +1916,386 @@
       debugMode = !debugMode;
     }
 
+    function initExitDustParticles() {
+      exitDustParticles = [];
+      for (let i = 0; i < 30; i++) {
+        exitDustParticles.push({
+          x: (dependencies.width / 2) + (Math.random() - 0.5) * 220,
+          y: Math.random() * dependencies.height,
+          vy: -14 - Math.random() * 22,
+          swayAmp: 10 + Math.random() * 16,
+          swayFreq: 1.4 + Math.random() * 2,
+          phase: Math.random() * Math.PI * 2,
+          size: 1.8 + Math.random() * 2.2,
+          alpha: 0.35 + Math.random() * 0.45
+        });
+      }
+    }
+
+    function skipExitCinematic() {
+      if (transitionSent) return;
+      transitionSent = true;
+      dependencies.switchState(dependencies.states.LEVEL3, 0.05, 0.2);
+    }
+
+    function updateExitCinematic(dt) {
+      exitCineTimer += dt;
+
+      // Partículas de polvo ascendiendo en el haz de luz
+      exitDustParticles.forEach(p => {
+        p.y += p.vy * dt;
+        p.x += Math.sin(exitCineTimer * p.swayFreq + p.phase) * (p.swayAmp * 0.4) * dt;
+        if (p.y < 0) {
+          p.y = dependencies.height;
+          p.x = (dependencies.width / 2) + (Math.random() - 0.5) * 220;
+        }
+      });
+
+      if (exitCinePhase === 'shaft_climb') {
+        const prog = Math.min(1.0, exitCineTimer / CLIMB_OUT_TIME);
+        // Subida suave y lineal sin rebote
+        const shaftTopY = 85;
+        const shaftBottomY = dependencies.height - 75;
+        exitCineGirlY = shaftBottomY - prog * (shaftBottomY - shaftTopY);
+        // Oscilación natural entre repisas a izquierda y derecha
+        exitCineGirlX = (dependencies.width / 2) + Math.sin(prog * Math.PI * 6) * 46;
+
+        if (prog >= 1.0) {
+          exitCinePhase = 'surface_emerge';
+          exitCineTimer = 0;
+          exitFlashAlpha = 0.92;
+          if (dependencies.audio && dependencies.audio.sfxStep) dependencies.audio.sfxStep();
+        }
+      } else if (exitCinePhase === 'surface_emerge') {
+        exitFlashAlpha = Math.max(0, exitFlashAlpha - dt * 1.5);
+        exitCineGirlX = 330;
+        exitCineGirlY = 560; // Con los pies sobre el pasto (560)
+        if (exitCineTimer >= SURFACE_LOOK_TIME) {
+          exitCinePhase = 'walk_to_tree';
+          exitCineTimer = 0;
+        }
+      } else if (exitCinePhase === 'walk_to_tree') {
+        const prog = Math.min(1.0, exitCineTimer / WALK_TO_TREE_TIME);
+        const startX = 330;
+        const targetX = dependencies.width / 2; // Base del pino (640)
+        exitCineGirlX = startX + prog * (targetX - startX);
+        exitCineGirlY = 560; // Pies sobre el suelo
+
+        if (prog >= 1.0) {
+          exitCinePhase = 'pine_climb';
+          exitCineTimer = 0;
+          if (dependencies.audio && dependencies.audio.sfxJump) dependencies.audio.sfxJump();
+        }
+      } else if (exitCinePhase === 'pine_climb') {
+        const JUMP_TIME = 0.55;
+        if (exitCineTimer <= JUMP_TIME) {
+          const jProg = exitCineTimer / JUMP_TIME;
+          const jumpArc = Math.sin(jProg * Math.PI) * 45;
+          exitCineGirlY = 560 - (jProg * 40) - jumpArc;
+          exitCineGirlX = dependencies.width / 2;
+        } else {
+          exitCineGirlY = 520; // Rama base donde inicia el Nivel 6
+          exitCineGirlX = dependencies.width / 2;
+          const fadeProg = Math.min(1.0, (exitCineTimer - JUMP_TIME) / CINE_FADE_OUT_TIME);
+          exitFadeBlackAlpha = fadeProg;
+          if (fadeProg >= 1.0 && !transitionSent) {
+            transitionSent = true;
+            dependencies.switchState(dependencies.states.LEVEL3, 0.035, 0.3);
+          }
+        }
+      }
+    }
+
+    function drawExitCinematic(ctx) {
+      const W = dependencies.width;
+      const H = dependencies.height;
+
+      if (exitCinePhase === 'shaft_climb') {
+        // --- 1. POZO VERTICAL ALTO DE ROCA ---
+        ctx.fillStyle = '#1c1524';
+        ctx.fillRect(0, 0, W, H);
+
+        const shaftCenterX = W / 2;
+        const shaftLeft = shaftCenterX - 220;
+        const shaftRight = shaftCenterX + 220;
+
+        // Pared rocosa izquierda
+        ctx.fillStyle = '#2b1f33';
+        ctx.fillRect(0, 0, shaftLeft, H);
+        ctx.fillStyle = '#382842';
+        for (let y = -40; y < H + 60; y += 120) {
+          ctx.beginPath();
+          ctx.roundRect(shaftLeft - 90, y, 90, 52, [0, 16, 16, 0]);
+          ctx.fill();
+        }
+
+        // Pared rocosa derecha
+        ctx.fillStyle = '#2b1f33';
+        ctx.fillRect(shaftRight, 0, W - shaftRight, H);
+        ctx.fillStyle = '#382842';
+        for (let y = 20; y < H + 60; y += 120) {
+          ctx.beginPath();
+          ctx.roundRect(shaftRight, y, 90, 52, [16, 0, 0, 16]);
+          ctx.fill();
+        }
+
+        // Repisas de piedra alternadas para escalar
+        ctx.fillStyle = '#4c3756';
+        ctx.strokeStyle = '#6a4d78';
+        ctx.lineWidth = 3;
+        for (let y = 60; y < H + 60; y += 140) {
+          ctx.beginPath();
+          ctx.roundRect(shaftLeft - 25, y, 75, 18, 9);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.roundRect(shaftRight - 50, y + 70, 75, 18, 9);
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        // Raíces colgantes desde la superficie
+        ctx.strokeStyle = '#4a3319';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(shaftLeft + 10, 0);
+        ctx.quadraticCurveTo(shaftLeft + 25, H * 0.3, shaftLeft - 5, H * 0.6);
+        ctx.quadraticCurveTo(shaftLeft + 15, H * 0.8, shaftLeft + 5, H);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(shaftRight - 10, 0);
+        ctx.quadraticCurveTo(shaftRight - 28, H * 0.35, shaftRight + 5, H * 0.65);
+        ctx.quadraticCurveTo(shaftRight - 15, H * 0.85, shaftRight - 8, H);
+        ctx.stroke();
+
+        // Salpicaduras de musgo suave en raíces
+        ctx.fillStyle = '#5b8c5a';
+        for (let y = 40; y < H; y += 90) {
+          ctx.beginPath();
+          ctx.arc(shaftLeft + 12 + Math.sin(y) * 8, y, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(shaftRight - 12 + Math.cos(y) * 8, y + 35, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Haz de luz cálida cayendo desde la salida en el techo
+        const beamGrad = ctx.createLinearGradient(shaftCenterX, 0, shaftCenterX, H);
+        beamGrad.addColorStop(0, 'rgba(255, 235, 175, 0.46)');
+        beamGrad.addColorStop(0.4, 'rgba(255, 220, 145, 0.22)');
+        beamGrad.addColorStop(1, 'rgba(255, 205, 120, 0.04)');
+        ctx.fillStyle = beamGrad;
+        ctx.beginPath();
+        ctx.moveTo(shaftCenterX - 65, 0);
+        ctx.lineTo(shaftCenterX + 65, 0);
+        ctx.lineTo(shaftRight + 30, H);
+        ctx.lineTo(shaftLeft - 30, H);
+        ctx.closePath();
+        ctx.fill();
+
+        // Apertura luminosa hacia la superficie arriba
+        ctx.fillStyle = '#ffecb3';
+        ctx.beginPath();
+        ctx.ellipse(shaftCenterX, 14, 85, 26, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff9e6';
+        ctx.beginPath();
+        ctx.ellipse(shaftCenterX, 10, 68, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Partículas de polvo doradas flotando en el haz
+        exitDustParticles.forEach(p => {
+          ctx.save();
+          ctx.fillStyle = `rgba(255, 245, 195, ${p.alpha})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        });
+
+        // La niña trepando suave hacia la luz (misma animación de escalada en roca grande)
+        const climbFacing = Math.cos(exitCineTimer * 2.8) >= 0;
+        drawGirlEscape(ctx, exitCineGirlX, exitCineGirlY, {
+          state: 'climbing',
+          animTime: exitCineTimer,
+          facingRight: climbFacing
+        });
+
+      } else {
+        // --- 2. SUPERFICIE: ATARDECER, MONTAÑAS Y EL GRAN PINO ---
+        // Cielo de atardecer (mismo gradiente del inicio del Nivel 6)
+        const skyGrad = ctx.createLinearGradient(0, 0, 0, 560);
+        skyGrad.addColorStop(0, '#533b68');
+        skyGrad.addColorStop(0.35, '#784464');
+        skyGrad.addColorStop(0.7, '#ab5660');
+        skyGrad.addColorStop(1, '#e89464');
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, W, H);
+
+        // Montañas lejanas en tonos pasteles violetas
+        ctx.fillStyle = '#3a284c';
+        ctx.beginPath();
+        ctx.moveTo(-40, 560);
+        ctx.lineTo(160, 360);
+        ctx.lineTo(380, 480);
+        ctx.lineTo(600, 340);
+        ctx.lineTo(880, 500);
+        ctx.lineTo(1120, 370);
+        ctx.lineTo(W + 50, 560);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#553b66';
+        ctx.beginPath();
+        ctx.moveTo(-40, 560);
+        ctx.lineTo(100, 430);
+        ctx.lineTo(290, 510);
+        ctx.lineTo(490, 420);
+        ctx.lineTo(760, 530);
+        ctx.lineTo(980, 440);
+        ctx.lineTo(W + 50, 560);
+        ctx.closePath();
+        ctx.fill();
+
+        // Tronco colosal del Gran Pino (en el centro, idéntico al Nivel 6)
+        const trunkWidth = 190;
+        const pineBaseX = W / 2;
+
+        ctx.fillStyle = '#422c1d';
+        ctx.fillRect(pineBaseX - trunkWidth / 2, 0, trunkWidth, 560);
+
+        // Corteza del tronco
+        ctx.strokeStyle = '#2b1b11';
+        ctx.lineWidth = 4;
+        for (let y = 40; y < 560; y += 65) {
+          ctx.beginPath();
+          ctx.moveTo(pineBaseX - trunkWidth / 2 + 10, y);
+          ctx.quadraticCurveTo(pineBaseX, y + 22, pineBaseX + trunkWidth / 2 - 10, y);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = 'rgba(205, 151, 101, 0.28)';
+        ctx.lineWidth = 8;
+        ctx.beginPath();
+        ctx.moveTo(pineBaseX - 52, 0);
+        ctx.lineTo(pineBaseX - 52, 560);
+        ctx.moveTo(pineBaseX + 48, 0);
+        ctx.lineTo(pineBaseX + 48, 560);
+        ctx.stroke();
+
+        // Primera rama gruesa donde aterriza la niña (y = 520 / 560)
+        ctx.fillStyle = '#3a2416';
+        ctx.beginPath();
+        ctx.roundRect(pineBaseX - 120, 545, 240, 20, 10);
+        ctx.fill();
+        ctx.strokeStyle = '#26170d';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Follaje de agujas de pino pastel alrededor de la rama base
+        ctx.fillStyle = '#264d36';
+        for (let fx = pineBaseX - 140; fx <= pineBaseX + 140; fx += 35) {
+          ctx.beginPath();
+          ctx.arc(fx, 555, 16, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Suelo exterior de pasto verde (a y = 560)
+        ctx.fillStyle = '#4c804c';
+        ctx.fillRect(0, 560, W, H - 560);
+
+        // Borde superior de pasto con césped estilizado
+        ctx.fillStyle = '#5ea65e';
+        for (let gx = 0; gx < W; gx += 20) {
+          ctx.beginPath();
+          ctx.moveTo(gx, 560);
+          ctx.lineTo(gx + 10, 550);
+          ctx.lineTo(gx + 20, 560);
+          ctx.fill();
+        }
+
+        // Borde del hueco de la cueva por donde salió (a la izquierda, x = 240)
+        ctx.fillStyle = '#2b1f33';
+        ctx.beginPath();
+        ctx.ellipse(240, 564, 48, 14, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#5a3f68';
+        ctx.lineWidth = 3.5;
+        ctx.stroke();
+
+        // Niña animada en la superficie
+        let girlState = 'idle';
+        if (exitCinePhase === 'walk_to_tree') {
+          girlState = 'run';
+        } else if (exitCinePhase === 'pine_climb') {
+          girlState = (exitCineTimer < 0.55) ? 'jump' : 'climbing';
+        }
+
+        drawGirlEscape(ctx, exitCineGirlX, exitCineGirlY, {
+          state: girlState,
+          animTime: exitCineTimer,
+          facingRight: true
+        });
+
+        // Breve destello de luz al salir al exterior
+        if (exitFlashAlpha > 0) {
+          ctx.fillStyle = `rgba(255, 248, 220, ${exitFlashAlpha})`;
+          ctx.fillRect(0, 0, W, H);
+        }
+
+        // Fundido a negro suave de 1 s al empezar el nivel 6
+        if (exitFadeBlackAlpha > 0) {
+          ctx.fillStyle = `rgba(14, 12, 22, ${exitFadeBlackAlpha})`;
+          ctx.fillRect(0, 0, W, H);
+        }
+      }
+
+      // Botón SALTAR común a toda la cinemática
+      const skipX = 75, skipY = 26, skipW = 110, skipH = 34;
+      const skipHover = dependencies.mouse &&
+        Math.abs(dependencies.mouse.x - skipX) < skipW / 2 &&
+        Math.abs(dependencies.mouse.y - skipY) < skipH / 2;
+
+      ctx.save();
+      ctx.fillStyle = skipHover ? 'rgba(255, 255, 255, 0.32)' : 'rgba(255, 255, 255, 0.18)';
+      ctx.beginPath();
+      ctx.roundRect(skipX - skipW / 2, skipY - skipH / 2, skipW, skipH, 17);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      ctx.fillStyle = '#fff';
+      ctx.font = '600 14px Fredoka, Quicksand, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('SALTAR', skipX, skipY);
+      ctx.restore();
+
+      if (dependencies.mouse && dependencies.mouse.clicked) {
+        dependencies.mouse.clicked = false;
+        skipExitCinematic();
+      }
+
+      dependencies.drawLogo(ctx, dependencies.logoSize);
+    }
+
     function handleKey(e) {
       debugLastKey = e.code || e.key || 'Desconocida';
 
       if (e.code === 'KeyP' || e.code === 'Escape') {
         return false; // Permite pausar con P o Esc
+      }
+
+      if (completed) {
+        if (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') {
+          skipExitCinematic();
+          if (typeof e.preventDefault === 'function') e.preventDefault();
+          return true;
+        }
+        return false;
       }
 
       if (e.code === 'F3') {
@@ -1953,16 +2347,9 @@
         if (p.life >= p.maxLife) p.active = false;
       });
 
-      // Si el nivel ya fue completado, avance suave hacia el Gran Pino (Nivel 6)
+      // Si el nivel ya fue completado, reproducir la cinemática de salida hacia el Gran Pino
       if (completed) {
-        exitLightAlpha = Math.min(1.0, exitLightAlpha + dt * 1.5);
-        player.x += 3.2;
-        player.stepPhase += (3.2 / 18) * Math.PI;
-        player.state = 'run';
-        if (exitLightAlpha >= 1.0 && !transitionSent) {
-          transitionSent = true;
-          dependencies.switchState(dependencies.states.LEVEL3, 0.035, 0.4);
-        }
+        updateExitCinematic(dt);
         return;
       }
 
@@ -2289,6 +2676,9 @@
         // Salida de la cueva al llegar al final
         if (player.x >= LEVEL5_TOTAL_DIST - 60 && !completed) {
           completed = true;
+          exitCinePhase = 'shaft_climb';
+          exitCineTimer = 0;
+          initExitDustParticles();
           if (dependencies.audio && dependencies.audio.sfxVictory) {
             dependencies.audio.sfxVictory();
           }
@@ -2298,6 +2688,10 @@
 
     // --- RENDERIZADO DEL NIVEL ---
     function draw(ctx) {
+      if (completed) {
+        drawExitCinematic(ctx);
+        return;
+      }
       buildCaveEscapeOffscreens(dependencies.width, dependencies.height);
 
       ctx.save();

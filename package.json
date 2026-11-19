@@ -8,6 +8,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "serve": "node server.js",
     "dist": "electron-builder --win portable --x64"
   },
   "devDependencies": {
