@@ -1410,20 +1410,38 @@
       p.variant = Math.floor(Math.random() * (fragmentCanvases.length || 1));
     }
 
-    function skipToCaveEscape() {
+    function goToLevel5() {
       if (transitionSent) return;
       transitionSent = true;
-      dependencies.switchState(dependencies.states.CAVE_ESCAPE, 0.05, 0.1);
+      const targetState = dependencies.states ? dependencies.states.CAVE_ESCAPE : 'CAVE_ESCAPE';
+      const transitionFn = dependencies.goToState || dependencies.switchState;
+      if (typeof transitionFn === 'function') {
+        transitionFn(targetState, 0.045, 0.15);
+      }
     }
 
     function update(dt) {
-      if (dependencies.isPaused()) return;
+      if (dependencies.isPaused && dependencies.isPaused()) return;
       elapsed += dt;
+
+      // Watchdog de seguridad: si dura más del doble del tiempo previsto, forzar transición
+      if (elapsed >= QUAKE_TIME * 2) {
+        goToLevel5();
+        return;
+      }
+
+      // Saltar con clic o toque en cualquier parte de la pantalla
+      if (dependencies.mouse && dependencies.mouse.clicked) {
+        dependencies.mouse.clicked = false;
+        if (dependencies.audio && dependencies.audio.sfxClick) dependencies.audio.sfxClick();
+        goToLevel5();
+        return;
+      }
 
       // Sonido de temblor grave
       if (!soundTriggered && elapsed >= 0.2) {
         soundTriggered = true;
-        if (dependencies.audio.sfxQuake) dependencies.audio.sfxQuake();
+        if (dependencies.audio && dependencies.audio.sfxQuake) dependencies.audio.sfxQuake();
       }
 
       // Cálculo de amplitud del temblor con curva suave (sube, se mantiene y baja sin rebote)
@@ -1452,18 +1470,17 @@
         }
       });
 
-      // Animación de la niña
+      // Animación de la niña: carrera rápida hacia la derecha
       if (elapsed < 1.8) {
         phase = 'react';
       } else {
         phase = 'run';
-        girlX += 3.8;
+        girlX += 240 * dt;
       }
 
       // Fin de la cinemática: transición suave a negro hacia el Nivel 5
       if (elapsed >= QUAKE_TIME && !transitionSent) {
-        transitionSent = true;
-        dependencies.switchState(dependencies.states.CAVE_ESCAPE, 1 / (60 * QUAKE_FADE_TIME), 0.2);
+        goToLevel5();
       }
     }
 
@@ -1499,35 +1516,56 @@
           ctx.restore();
         });
 
-        // Dibujar a la niña con ciclo de correr fluido (sin sombra ovalada debajo)
-        let girlState = 'idle';
+        // Dibujar a la niña: misma estética ilustrada y animación de caminar/correr que las otras cinemáticas (drawGirl)
+        let girlAnimState = 'idle';
+        let stepPhase = 0;
         if (phase === 'react') {
-          girlState = 'duck'; // Se cubre la cabeza asustada
+          girlAnimState = 'idle';
         } else if (phase === 'run') {
-          girlState = 'run';
+          girlAnimState = 'run';
+          stepPhase = ((girlX - 260) / 16) * Math.PI; // Sin patinar, proporcional al avance
         }
 
-        drawAnika(ctx, girlX, girlY, {
-          state: girlState,
-          facingRight: true,
-          stepPhase: (girlX / 18) * Math.PI,
-          animTime: elapsed
-        });
+        if (dependencies.drawGirl) {
+          dependencies.drawGirl(ctx, girlX, CAVE_GROUND_Y, {
+            state: girlAnimState,
+            facingRight: true,
+            stepPhase: stepPhase,
+            animTime: elapsed * 1.5, // Mayor velocidad para verse como carrera
+            scale: 1,
+            hasDuck: false
+          });
+        } else {
+          drawAnika(ctx, girlX, CAVE_GROUND_Y, {
+            state: girlAnimState,
+            facingRight: true,
+            stepPhase: stepPhase,
+            animTime: elapsed * 1.5
+          });
+        }
 
       } finally {
         ctx.restore();
       }
 
-      // Interfaz fija
-      dependencies.drawSkipButton(ctx, dependencies.width - 130, dependencies.height - 40, 110, 32);
-      dependencies.drawLogo(ctx, dependencies.logoSize);
+      // Dibujar logo primero
+      if (dependencies.drawLogo) {
+        dependencies.drawLogo(ctx, dependencies.logoSize);
+      }
+
+      // Botón SALTAR en esquina superior derecha dibujado POR ENCIMA de todo
+      if (dependencies.drawSkipButton) {
+        dependencies.drawSkipButton(ctx, () => {
+          goToLevel5();
+        });
+      }
     }
 
     function handleKey(e) {
       const isEnter = (e.code === 'Enter' || e.code === 'NumpadEnter' || e.key === 'Enter');
-      if (e.code === 'Space' || isEnter) {
+      if (e.code === 'Space' || isEnter || e.code === 'Escape') {
         if (typeof e.preventDefault === 'function') e.preventDefault();
-        skipToCaveEscape();
+        goToLevel5();
         return true;
       }
       return false;
@@ -1960,6 +1998,12 @@
     function updateExitCinematic(dt) {
       exitCineTimer += dt;
 
+      // Watchdog de seguridad: si dura más del doble de su tiempo previsto, forzar transición a LEVEL3
+      if (exitCineTimer >= 22.0) {
+        skipExitCinematic();
+        return;
+      }
+
       // Partículas de polvo ascendiendo en el haz de luz
       exitDustParticles.forEach(p => {
         p.y += p.vy * dt;
@@ -2345,34 +2389,17 @@
         }
       }
 
-      // Botón SALTAR común a toda la cinemática
-      const skipX = 75, skipY = 26, skipW = 110, skipH = 34;
-      const skipHover = dependencies.mouse &&
-        Math.abs(dependencies.mouse.x - skipX) < skipW / 2 &&
-        Math.abs(dependencies.mouse.y - skipY) < skipH / 2;
-
-      ctx.save();
-      ctx.fillStyle = skipHover ? 'rgba(255, 255, 255, 0.32)' : 'rgba(255, 255, 255, 0.18)';
-      ctx.beginPath();
-      ctx.roundRect(skipX - skipW / 2, skipY - skipH / 2, skipW, skipH, 17);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-
-      ctx.fillStyle = '#fff';
-      ctx.font = '600 14px Fredoka, Quicksand, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('SALTAR', skipX, skipY);
-      ctx.restore();
-
-      if (dependencies.mouse && dependencies.mouse.clicked) {
-        dependencies.mouse.clicked = false;
-        skipExitCinematic();
+      // Logo primero
+      if (dependencies.drawLogo) {
+        dependencies.drawLogo(ctx, dependencies.logoSize);
       }
 
-      dependencies.drawLogo(ctx, dependencies.logoSize);
+      // Botón SALTAR compartido en esquina superior derecha por encima de todo
+      if (dependencies.drawSkipButton) {
+        dependencies.drawSkipButton(ctx, () => {
+          skipExitCinematic();
+        });
+      }
     }
 
     function handleKey(e) {

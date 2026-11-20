@@ -459,6 +459,8 @@
     let girlOptions = { facingRight: true, animTime: 0, hasDuck: false, state: 'idle' };
     let interactionsEnabled = true;
     let victoryGirlX = GOBLIN_INITIAL_GIRL_X;
+    let fellInHole = false;
+    let girlVisible = true;
     let holeLeaves = [];
     function initHoleLeaves() {
       holeLeaves = [];
@@ -779,7 +781,9 @@
       } else if (nextState === 'victory') {
         substate = 'victoryExit';
         elapsed = 0;
-        victoryGirlX = GOBLIN_INITIAL_GIRL_X;
+        if (girlVisible && !fellInHole) {
+          victoryGirlX = GOBLIN_INITIAL_GIRL_X;
+        }
       } else if (nextState === 'defeatDialog') {
         substate = 'defeat';
       }
@@ -938,7 +942,9 @@
       extraMode = false;
       plannedResult = 'continue';
       transitionSent = false;
+      girlVisible = true;
       victoryGirlX = GOBLIN_INITIAL_GIRL_X;
+      fellInHole = false;
       initHoleLeaves();
       beginDialogue(INTRO_TEXT, 'intro');
     }
@@ -951,23 +957,27 @@
     function startCaveCinematicTransition() {
       if (transitionSent) return;
       transitionSent = true;
+      fellInHole = true;
+      girlVisible = false;
       substate = 'transitioning';
-      dependencies.switchState(
-        dependencies.states.CAVE_CINEMATIC,
-        0.05,
-        0.15
-      );
+      const target = dependencies.states ? dependencies.states.CAVE_CINEMATIC : 'CAVE_CINEMATIC';
+      const transitionFn = dependencies.goToState || dependencies.switchState;
+      if (typeof transitionFn === 'function') {
+        transitionFn(target, 0.05, 0.15);
+      }
     }
 
     function skipToCaveLevel() {
       if (transitionSent) return;
       transitionSent = true;
+      fellInHole = true;
+      girlVisible = false;
       substate = 'transitioning';
-      dependencies.switchState(
-        dependencies.states.CAVE_TYPING,
-        0.04,
-        0.1
-      );
+      const target = dependencies.states ? dependencies.states.CAVE_TYPING : 'CAVE_TYPING';
+      const transitionFn = dependencies.goToState || dependencies.switchState;
+      if (typeof transitionFn === 'function') {
+        transitionFn(target, 0.05, 0.15);
+      }
     }
 
     function update(deltaTime) {
@@ -979,17 +989,25 @@
         feedbackElapsed += deltaTime;
         if (feedbackElapsed >= GOBLIN_QUIZ_CONFIG.feedbackSeconds) advanceFeedback();
       } else if (substate === 'victoryExit') {
-        victoryGirlX += GOBLIN_WALK_SPEED * deltaTime;
-        if (victoryGirlX >= LEAVES_PILE_X) {
-          substate = 'holeFall';
-          elapsed = 0;
-          initHoleLeaves();
-          if (dependencies.audio && dependencies.audio.sfxCrumble) {
-            dependencies.audio.sfxCrumble();
+        if (!fellInHole && girlVisible) {
+          victoryGirlX += GOBLIN_WALK_SPEED * deltaTime;
+          if (victoryGirlX >= LEAVES_PILE_X) {
+            fellInHole = true;
+            substate = 'holeFall';
+            elapsed = 0;
+            initHoleLeaves();
+            if (dependencies.audio && dependencies.audio.sfxCrumble) {
+              dependencies.audio.sfxCrumble();
+            }
           }
         }
       } else if (substate === 'holeFall') {
+        fellInHole = true;
+        if (elapsed >= 0.55) {
+          girlVisible = false;
+        }
         if (elapsed >= FALL_TIME) {
+          girlVisible = false;
           startCaveCinematicTransition();
         }
       }
@@ -1490,55 +1508,84 @@
       girlOptions.animTime = elapsed;
       girlOptions.facingRight = true;
 
-      if (substate === 'holeFall') {
-        // 1. Fondo oscuro del pozo antes de la niña
-        ctx.fillStyle = '#1c100c';
-        ctx.beginPath();
-        ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY, 36, 12, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillRect(LEAVES_PILE_X - 35, GOBLIN_QUIZ_CONFIG.groundY, 70, 100);
+      if (fellInHole) {
+        if (substate === 'holeFall') {
+          // 1. Fondo oscuro del pozo antes de la niña
+          ctx.fillStyle = '#1c100c';
+          ctx.beginPath();
+          ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY, 36, 12, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillRect(LEAVES_PILE_X - 35, GOBLIN_QUIZ_CONFIG.groundY, 70, 100);
 
-        // 2. La niña cayendo DENTRO del pozo: recortada (clip) con máscara para que jamás atraviese el suelo
-        ctx.save();
-        ctx.beginPath();
-        // Máscara del pozo: solo visible en el tiro vertical del pozo y desapareciendo hacia abajo
-        ctx.rect(LEAVES_PILE_X - 35, -500, 70, GOBLIN_QUIZ_CONFIG.groundY + 10);
-        ctx.clip();
+          // 2. La niña cayendo DENTRO del pozo: recortada (clip) con máscara para que jamás atraviese el suelo
+          // Solo se dibuja mientras cae por el hueco (hasta 0.55s) y si girlVisible es true
+          if (girlVisible && elapsed < 0.55) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(LEAVES_PILE_X - 35, -500, 70, GOBLIN_QUIZ_CONFIG.groundY + 10);
+            ctx.clip();
 
-        girlOptions.state = 'fall_hole';
-        const fallProg = Math.min(1.0, elapsed / 0.55);
-        girlY = GOBLIN_QUIZ_CONFIG.groundY + fallProg * 75;
-        dependencies.drawGirl(ctx, girlX, girlY, girlOptions);
-        ctx.restore();
+            girlOptions.state = 'fall_hole';
+            const fallProg = elapsed / 0.55;
+            girlY = GOBLIN_QUIZ_CONFIG.groundY + fallProg * 75;
+            dependencies.drawGirl(ctx, girlX, girlY, girlOptions);
+            ctx.restore();
+          }
 
-        // 3. Suelo de tierra y borde frontal del hueco dibujados ENCIMA de la niña (la tapan por completo)
-        ctx.fillStyle = '#86583b';
-        ctx.fillRect(LEAVES_PILE_X - 55, GOBLIN_QUIZ_CONFIG.groundY + 6, 110, 180);
+          // 3. Suelo de tierra y borde frontal del hueco dibujados ENCIMA de la niña (la tapan por completo)
+          ctx.fillStyle = '#86583b';
+          ctx.fillRect(LEAVES_PILE_X - 55, GOBLIN_QUIZ_CONFIG.groundY + 6, 110, 180);
 
-        // Borde frontal de césped
-        ctx.fillStyle = '#78a85d';
-        ctx.beginPath();
-        ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY + 3, 38, 10, 0, 0, Math.PI);
-        ctx.fill();
-        ctx.strokeStyle = '#a6bf70';
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
+          // Borde frontal de césped
+          ctx.fillStyle = '#78a85d';
+          ctx.beginPath();
+          ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY + 3, 38, 10, 0, 0, Math.PI);
+          ctx.fill();
+          ctx.strokeStyle = '#a6bf70';
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
 
-        // 4. Hojas cayendo y dispersándose
-        drawHoleAndLeaves(ctx);
+          // 4. Hojas cayendo y dispersándose
+          drawHoleAndLeaves(ctx);
 
-        // 5. Fundido corto a negro cuando la niña ya desapareció por el pozo
-        if (elapsed >= 0.55) {
-          const fadeAlpha = Math.min(1.0, (elapsed - 0.55) / (FALL_TIME - 0.55));
-          ctx.fillStyle = `rgba(18, 12, 24, ${fadeAlpha})`;
-          ctx.fillRect(-dependencies.width, -dependencies.height, dependencies.width * 3, dependencies.height * 3);
+          // 5. Fundido corto a negro cuando la niña ya desapareció por el pozo
+          if (elapsed >= 0.55) {
+            const fadeAlpha = Math.min(1.0, (elapsed - 0.55) / (FALL_TIME - 0.55));
+            ctx.fillStyle = `rgba(18, 12, 24, ${fadeAlpha})`;
+            ctx.fillRect(-dependencies.width, -dependencies.height, dependencies.width * 3, dependencies.height * 3);
+          }
+        } else {
+          // Una vez caída en el pozo, en la superficie NUNCA vuelve a aparecer la niña.
+          // Solo se dibuja el hueco en el suelo y las hojas.
+          ctx.fillStyle = '#1c100c';
+          ctx.beginPath();
+          ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY, 36, 12, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillRect(LEAVES_PILE_X - 35, GOBLIN_QUIZ_CONFIG.groundY, 70, 100);
+
+          ctx.fillStyle = '#86583b';
+          ctx.fillRect(LEAVES_PILE_X - 55, GOBLIN_QUIZ_CONFIG.groundY + 6, 110, 180);
+
+          ctx.fillStyle = '#78a85d';
+          ctx.beginPath();
+          ctx.ellipse(LEAVES_PILE_X, GOBLIN_QUIZ_CONFIG.groundY + 3, 38, 10, 0, 0, Math.PI);
+          ctx.fill();
+          ctx.strokeStyle = '#a6bf70';
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+
+          drawHoleAndLeaves(ctx);
         }
-      } else {
+      } else if (girlVisible) {
+        // En la superficie antes de caer
         drawHoleAndLeaves(ctx);
         girlOptions.state = (substate === 'victoryExit' && victoryGirlX < LEAVES_PILE_X) ? 'run' : 'idle';
         dependencies.drawGirl(ctx, girlX, girlY, girlOptions);
+      } else {
+        drawHoleAndLeaves(ctx);
       }
 
+      // El duende queda arriba riéndose en la superficie
       const goblinX = walkingToTree ? 944 : 920;
       drawGoblin(ctx, goblinX, GOBLIN_QUIZ_CONFIG.groundY);
     }

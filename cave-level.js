@@ -652,6 +652,12 @@
       if (dependencies.isPaused && dependencies.isPaused()) return;
       elapsed += dt;
 
+      // Protección de seguridad: si dura más del doble de su tiempo previsto, forzar transición a CAVE_TYPING
+      if (elapsed >= 8.0) {
+        skipToCaveLevel();
+        return;
+      }
+
       leaves.forEach((l) => {
         l.y += l.vy * dt;
         l.rot += 0.03;
@@ -854,33 +860,16 @@
         hasDuck: false
       });
 
-      dependencies.drawLogo(ctx, dependencies.logoSize);
+      // Logo primero
+      if (dependencies.drawLogo) {
+        dependencies.drawLogo(ctx, dependencies.logoSize);
+      }
 
-      // Botón SALTAR sutil
-      const skipX = 75, skipY = 26, skipW = 110, skipH = 34;
-      const skipHover = dependencies.mouse &&
-        Math.abs(dependencies.mouse.x - skipX) < skipW / 2 &&
-        Math.abs(dependencies.mouse.y - skipY) < skipH / 2;
-
-      ctx.save();
-      ctx.fillStyle = skipHover ? 'rgba(255, 255, 255, 0.32)' : 'rgba(255, 255, 255, 0.18)';
-      ctx.beginPath();
-      ctx.roundRect(skipX - skipW / 2, skipY - skipH / 2, skipW, skipH, 17);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-
-      ctx.fillStyle = '#fff';
-      ctx.font = '600 14px Fredoka, Quicksand, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('SALTAR', skipX, skipY);
-      ctx.restore();
-
-      if (dependencies.mouse && dependencies.mouse.clicked) {
-        dependencies.mouse.clicked = false;
-        skipToCaveLevel();
+      // Botón SALTAR compartido en esquina superior derecha por encima de todo
+      if (dependencies.drawSkipButton) {
+        dependencies.drawSkipButton(ctx, () => {
+          skipToCaveLevel();
+        });
       }
     }
 
@@ -923,6 +912,7 @@
     let wordPool = { short: [], medium: [], long: [] };
     let transitionSent = false;
     let girlX_offset = 0;
+    let girlStepPhase = 0;
     let debugMode = false;
 
     // --- OBJECT POOLS REUTILIZABLES ---
@@ -1020,6 +1010,7 @@
       lastSpawnedInitial = '';
       transitionSent = false;
       girlX_offset = 0;
+      girlStepPhase = 0;
 
       // Desactivar todos los objetos de las piscinas de forma limpia
       for (let i = 0; i < BAT_POOL_SIZE; i++) {
@@ -1287,6 +1278,10 @@
 
           // Animación de victoria y salida
           if (completed) {
+            timer += dt;
+            girlX_offset += 210 * dt;
+            girlStepPhase += (210 * dt / 18) * Math.PI;
+
             for (let i = 0; i < BAT_POOL_SIZE; i++) {
               const b = batPool[i];
               if (b.active) {
@@ -1300,10 +1295,13 @@
             }
 
             girlFacingRight = true;
-            girlX_offset += 210 * dt;
             if (girlX_offset > dependencies.width - GIRL_X + 80 && !transitionSent) {
               transitionSent = true;
-              dependencies.switchState(dependencies.states.QUAKE_CINEMATIC || dependencies.states.LEVEL3, 0.035, 0.4);
+              const target = dependencies.states ? dependencies.states.QUAKE_CINEMATIC : 'QUAKE_CINEMATIC';
+              const transitionFn = dependencies.goToState || dependencies.switchState;
+              if (typeof transitionFn === 'function') {
+                transitionFn(target, 0.035, 0.35);
+              }
             }
             return;
           }
@@ -1554,6 +1552,7 @@
               state: girlAnim,
               facingRight: girlFacingRight,
               throwDir: girlThrowDir,
+              stepPhase: completed ? girlStepPhase : 0,
               animTime: timer,
               hasDuck: false
             });

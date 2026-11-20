@@ -333,6 +333,7 @@
   let pendingNextState = null;
   let transitionSpeed = 0.035;
   let transitionBlackHold = 0; // Tiempo en segundos manteniéndose en negro
+  let transitionWatchdog = 0;  // Protección contra fundidos o cinemáticas colgadas
 
   // Canvas y contexto
   const canvas = document.getElementById('gameCanvas');
@@ -1607,13 +1608,14 @@
     }
 
     if (animState === 'idle') {
-      bobY = Math.sin(animTime * 4) * 2;
+      bobY = Math.sin(animTime * 4) * 1.5;
       capeAngle = Math.sin(animTime * 3) * 0.05;
     } else if (animState === 'run') {
-      bobY = Math.abs(Math.sin(animTime * 12)) * 4;
-      legL = Math.sin(animTime * 12) * 12;
+      const step = (options.stepPhase !== undefined) ? options.stepPhase : animTime * 12;
+      bobY = Math.abs(Math.sin(step)) * 2.8;
+      legL = Math.sin(step) * 12;
       legR = -legL;
-      capeAngle = 0.28 + Math.sin(animTime * 12) * 0.15;
+      capeAngle = 0.32 + Math.sin(step) * 0.16;
     } else if (animState === 'jump') {
       bobY = -2;
       legL = -8;
@@ -1626,16 +1628,64 @@
       capeAngle = -0.3;
     }
 
-    // Piernas / Botitas marrones
+    // Brazo lejano (detrás del cuerpo en oposición a la pierna lejana)
+    if (animState === 'run') {
+      const step = (options.stepPhase !== undefined) ? options.stepPhase : animTime * 12;
+      const armFarAngle = Math.cos(step) * 0.65;
+      ctx.save();
+      ctx.translate(-2, -26 - bobY);
+      ctx.rotate(armFarAngle);
+      ctx.fillStyle = '#3f776e';
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 8, 5, 2.5);
+      ctx.fill();
+      ctx.translate(7, 0);
+      ctx.rotate(0.35);
+      ctx.beginPath();
+      ctx.roundRect(0, -2, 6, 4, 2);
+      ctx.fill();
+      ctx.fillStyle = '#e8cbb2';
+      ctx.beginPath();
+      ctx.arc(6, 0, 2.6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (animState === 'idle') {
+      ctx.save();
+      ctx.translate(-2, -26 - bobY);
+      ctx.rotate(0.08);
+      ctx.fillStyle = '#3f776e';
+      ctx.beginPath();
+      ctx.roundRect(0, -2.5, 7, 4.5, 2.2);
+      ctx.fill();
+      ctx.fillStyle = '#e8cbb2';
+      ctx.beginPath();
+      ctx.arc(8, 0, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Piernas / Botitas marrones con pies apoyados sobre el suelo
     ctx.fillStyle = '#6d4834';
-    // Pierna izquierda
-    ctx.beginPath();
-    ctx.roundRect(-7 + legL * 0.3, -12 - bobY, 6, 12, 3);
-    ctx.fill();
-    // Pierna derecha
-    ctx.beginPath();
-    ctx.roundRect(1 + legR * 0.3, -12 - bobY, 6, 12, 3);
-    ctx.fill();
+    if (animState === 'run') {
+      const step = (options.stepPhase !== undefined) ? options.stepPhase : animTime * 12;
+      const footL = Math.sin(step) * 7;
+      const footR = -footL;
+      const liftL = Math.max(0, -Math.cos(step)) * 3.5;
+      const liftR = Math.max(0, Math.cos(step)) * 3.5;
+      ctx.beginPath();
+      ctx.roundRect(-7 + footL, -12 - bobY + liftL, 6, 12 - liftL, 2.5);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.roundRect(1 + footR, -12 - bobY + liftR, 6, 12 - liftR, 2.5);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.roundRect(-7, -12 - bobY, 6, 12, 3);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.roundRect(1, -12 - bobY, 6, 12, 3);
+      ctx.fill();
+    }
 
     // Vestido azul/verde pastel
     ctx.fillStyle = '#4c8c82';
@@ -1647,7 +1697,7 @@
     ctx.closePath();
     ctx.fill();
 
-    // Capa roja cálida (flameando)
+    // Capa roja cálida (flameando hacia atrás)
     ctx.save();
     ctx.translate(-4, -28 - bobY);
     ctx.rotate(capeAngle);
@@ -1752,6 +1802,41 @@
       ctx.arc(13, 0, 3.2, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
+    } else if (!hasDuck) {
+      if (animState === 'run') {
+        const step = (options.stepPhase !== undefined) ? options.stepPhase : animTime * 12;
+        const armNearAngle = -Math.cos(step) * 0.65;
+        ctx.save();
+        ctx.translate(2, -26 - bobY);
+        ctx.rotate(armNearAngle);
+        ctx.fillStyle = '#4c8c82';
+        ctx.beginPath();
+        ctx.roundRect(0, -2.5, 8, 5, 2.5);
+        ctx.fill();
+        ctx.translate(7, 0);
+        ctx.rotate(0.35);
+        ctx.beginPath();
+        ctx.roundRect(0, -2, 6, 4, 2);
+        ctx.fill();
+        ctx.fillStyle = '#fedec4';
+        ctx.beginPath();
+        ctx.arc(6, 0, 2.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      } else if (animState === 'idle') {
+        ctx.save();
+        ctx.translate(2, -26 - bobY);
+        ctx.rotate(0.12);
+        ctx.fillStyle = '#4c8c82';
+        ctx.beginPath();
+        ctx.roundRect(0, -2.5, 7, 4.5, 2.2);
+        ctx.fill();
+        ctx.fillStyle = '#fedec4';
+        ctx.beginPath();
+        ctx.arc(8, 0, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     // Capucha / lazo rojo en la cabeza
@@ -2484,14 +2569,66 @@
            mouse.y >= y - h / 2 && mouse.y <= y + h / 2;
   }
 
+  // Botón SALTAR compartido para TODAS las cinemáticas (esquina superior derecha, libre de logos y elementos)
+  const SKIP_BTN = { x: 1196, y: 40, w: 120, h: 38 };
+
+  function drawSkipButton(ctx, onSkip) {
+    let callback = typeof onSkip === 'function' ? onSkip : null;
+    if (arguments.length > 2 && typeof arguments[arguments.length - 1] === 'function') {
+      callback = arguments[arguments.length - 1];
+    }
+
+    const isHover = isMouseInBox(SKIP_BTN.x, SKIP_BTN.y, SKIP_BTN.w, SKIP_BTN.h);
+    if (isHover && mouse.clicked) {
+      mouse.clicked = false;
+      audio.sfxClick();
+      if (typeof callback === 'function') {
+        callback();
+      }
+      return;
+    }
+
+    ctx.save();
+    ctx.translate(SKIP_BTN.x, SKIP_BTN.y);
+
+    // Fondo estilo píldora pastel translúcido
+    ctx.fillStyle = isHover ? 'rgba(40, 30, 60, 0.88)' : 'rgba(30, 20, 50, 0.68)';
+    ctx.beginPath();
+    ctx.roundRect(-SKIP_BTN.w / 2, -SKIP_BTN.h / 2, SKIP_BTN.w, SKIP_BTN.h, 19);
+    ctx.fill();
+
+    ctx.strokeStyle = isHover ? '#ffd166' : 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = isHover ? 2.5 : 1.8;
+    ctx.stroke();
+
+    // Texto 'SALTAR »'
+    ctx.font = '700 15px Fredoka, Quicksand, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = isHover ? '#ffd166' : '#ffffff';
+    ctx.fillText('SALTAR »', 0, 1);
+
+    ctx.restore();
+  }
+
   // ==========================================
   // 6. CONTROLADOR DE ESTADOS Y TRANSICIONES
   // ==========================================
   function switchState(nextState, speed = 0.04, blackHold = 0) {
-    if (pendingNextState) return;
+    if (!nextState) return;
+    if (pendingNextState === nextState) return;
+    isPaused = false;
     pendingNextState = nextState;
-    transitionSpeed = speed;
-    transitionBlackHold = blackHold;
+    transitionSpeed = (typeof speed === 'number' && speed > 0) ? speed : 0.04;
+    transitionBlackHold = (typeof blackHold === 'number' && blackHold >= 0) ? blackHold : 0;
+    transitionWatchdog = 0;
+    if (document.activeElement && typeof document.activeElement.blur === 'function') {
+      document.activeElement.blur();
+    }
+  }
+
+  function goToState(nextState, speed = 0.04, blackHold = 0) {
+    switchState(nextState, speed, blackHold);
   }
 
   // ==========================================
@@ -2675,14 +2812,10 @@
 
       ctx.restore();
 
-      // Botón flotante para SALTAR cinemática (en espacio de pantalla)
-      const skipHover = isMouseInBox(V_WIDTH - 110, 42, 160, 42);
-      drawButton(ctx, V_WIDTH - 110, 42, 160, 42, 'SALTAR', skipHover);
-      if (mouse.clicked && skipHover) {
-        mouse.clicked = false;
-        audio.sfxClick();
+      // Botón flotante compartido para SALTAR cinemática (esquina inferior izquierda)
+      drawSkipButton(ctx, () => {
         switchState(STATE.LEVEL1);
-      }
+      });
     },
 
     drawHouse(ctx, x, y) {
@@ -5298,14 +5431,10 @@
       // Partículas
       particles.draw(ctx, 0, 0);
 
-      // Botón SALTAR CINEMÁTICA
-      const btnSkipHover = isMouseInBox(V_WIDTH - 120, V_HEIGHT - 42, 180, 42);
-      drawButton(ctx, V_WIDTH - 120, V_HEIGHT - 42, 180, 42, 'SALTAR', btnSkipHover);
-      if (mouse.clicked && btnSkipHover) {
-        mouse.clicked = false;
-        audio.sfxClick();
+      // Botón compartido para SALTAR cinemática (esquina inferior izquierda)
+      drawSkipButton(ctx, () => {
         switchState(STATE.VICTORY);
-      }
+      });
     }
   };
 
@@ -5797,12 +5926,14 @@
     height: V_HEIGHT,
     states: STATE,
     switchState,
+    goToState,
     mouse,
     audio,
     drawGirl,
     drawLogo,
     logoSize: LOGO_SIZE_LEVEL,
-    goblinQuiz
+    goblinQuiz,
+    drawSkipButton: (ctx, onSkip) => drawSkipButton(ctx, onSkip)
   });
 
   const caveLevel = window.createCaveLevel({
@@ -5810,6 +5941,7 @@
     height: V_HEIGHT,
     states: STATE,
     switchState,
+    goToState,
     mouse,
     gameState,
     audio,
@@ -5828,22 +5960,16 @@
     height: V_HEIGHT,
     states: STATE,
     switchState,
+    goToState,
     mouse,
     gameState,
     audio,
+    keys,
     isPaused: () => isPaused,
     drawGirl,
     drawLogo,
     logoSize: LOGO_SIZE_LEVEL,
-    drawSkipButton: (ctx, x, y, w, h) => {
-      const hover = isMouseInBox(x, y, w, h);
-      drawButton(ctx, x, y, w, h, 'SALTAR', hover);
-      if (mouse.clicked && hover) {
-        mouse.clicked = false;
-        audio.sfxClick();
-        switchState(STATE.CAVE_ESCAPE);
-      }
-    }
+    drawSkipButton: (ctx, onSkip) => drawSkipButton(ctx, onSkip)
   });
 
   const caveEscape = window.createCaveEscapeLevel({
@@ -5851,6 +5977,7 @@
     height: V_HEIGHT,
     states: STATE,
     switchState,
+    goToState,
     mouse,
     gameState,
     audio,
@@ -5862,7 +5989,8 @@
     drawInstructionBox,
     drawHearts,
     drawGameOverModal,
-    isPlayerBlinkVisible
+    isPlayerBlinkVisible,
+    drawSkipButton: (ctx, onSkip) => drawSkipButton(ctx, onSkip)
   });
 
   // 13. BUCLE PRINCIPAL DE JUEGO (GAME LOOP)
@@ -5994,41 +6122,55 @@
     }
 
     // 4. Manejo de transiciones suaves entre estados (Fade to Black / Fade in)
-    if (!isPaused) {
-      if (pendingNextState) {
-        transitionAlpha += transitionSpeed;
-        if (transitionAlpha >= 1) {
-          transitionAlpha = 1;
-          if (transitionBlackHold > 0) {
-            transitionBlackHold -= dt;
-          } else {
-            currentState = pendingNextState;
-            pendingNextState = null;
+    if (pendingNextState) {
+      transitionWatchdog += dt;
+      transitionAlpha += Math.max(0.035, transitionSpeed);
+      if (transitionAlpha >= 1 || transitionWatchdog > 2.0) {
+        transitionAlpha = 1;
+        if (transitionBlackHold > 0 && transitionWatchdog <= 2.0) {
+          transitionBlackHold -= dt;
+        } else {
+          currentState = pendingNextState;
+          pendingNextState = null;
+          transitionWatchdog = 0;
+          transitionBlackHold = 0;
+          transitionSpeed = 0.04;
 
-            // Inicializar nuevo estado
-            if (currentState === STATE.LEVEL1) {
-              gameState.startLevel();
-              level1.init();
-            } else if (currentState === STATE.LEVEL2) {
-              gameState.startLevel();
-              level2.init();
-            } else if (currentState === STATE.GOBLIN_QUIZ) {
-              goblinQuiz.init();
-            } else if (currentState === STATE.CAVE_CINEMATIC) {
-              caveCinematic.init();
-            } else if (currentState === STATE.CAVE_TYPING) {
-              gameState.startLevel();
-              caveLevel.init();
-            } else if (currentState === STATE.LEVEL3) {
-              gameState.startLevel();
-              level3.init();
-            } else if (currentState === STATE.CINE_FINAL) cineFinal.buildAssets();
+          // Inicializar nuevo estado limpiando todo rastro previo
+          if (currentState === STATE.CINE1) {
+            if (cine1.reset) cine1.reset();
+          } else if (currentState === STATE.LEVEL1) {
+            gameState.startLevel();
+            level1.init();
+          } else if (currentState === STATE.LEVEL2) {
+            gameState.startLevel();
+            level2.init();
+          } else if (currentState === STATE.GOBLIN_QUIZ) {
+            goblinQuiz.init();
+          } else if (currentState === STATE.CAVE_CINEMATIC) {
+            caveCinematic.init();
+          } else if (currentState === STATE.CAVE_TYPING) {
+            gameState.startLevel();
+            caveLevel.init();
+          } else if (currentState === STATE.QUAKE_CINEMATIC) {
+            quakeCinematic.init();
+          } else if (currentState === STATE.CAVE_ESCAPE) {
+            gameState.startLevel();
+            caveEscape.init();
+          } else if (currentState === STATE.LEVEL3) {
+            gameState.startLevel();
+            level3.init();
+          } else if (currentState === STATE.CINE_FINAL) {
+            cineFinal.buildAssets();
           }
         }
-      } else if (transitionAlpha > 0) {
-        transitionAlpha -= transitionSpeed;
-        if (transitionAlpha < 0) transitionAlpha = 0;
       }
+    } else if (transitionAlpha > 0) {
+      transitionWatchdog = 0;
+      transitionAlpha -= Math.max(0.04, transitionSpeed);
+      if (transitionAlpha < 0) transitionAlpha = 0;
+    } else {
+      transitionWatchdog = 0;
     }
 
     if (transitionAlpha > 0) {
